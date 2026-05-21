@@ -1,0 +1,1 @@
+# brat-lyrics-spicetify
