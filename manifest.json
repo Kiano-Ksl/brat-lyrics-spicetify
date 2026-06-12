@@ -1,8 +1,8 @@
 {
   "name": "Brat Lyrics",
-  "description": "Menampilkan lirik lagu bergaya Brat aesthetic (kotak, huruf kecil, nge-blur, dan memenuhi layar). Dilengkapi fitur ganti warna teks dan background.",
+  "description": "Transforms your currently playing song lyrics into a massive, edge-to-edge, lowercase text block featuring the iconic Brat aesthetic. Includes real-time background and text color customization.",
   "main": "brat-lyric.js",
-  "preview": "preview.png",
+  "preview": "preview.gif",
   "readme": "README.md",
   "tags": ["lyrics", "aesthetic", "brat", "customization", "ui"]
 }
