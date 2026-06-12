@@ -4,7 +4,7 @@ Bring the iconic, chaotic, and aesthetic "Brat" vibe straight to your Spotify.
 
 Instead of regular boring lyrics, **Brat Lyrics** transforms your currently playing song into a massive, edge-to-edge, lowercase text block that perfectly captures the viral Brat aesthetic. 
 
-![Brat Lyrics Main Demo](Sampul .gif)
+![Brat Lyrics Main Demo](demo.gif)
 
 ## ✨ Features
 * **Authentic Auto-Square Engine:** Automatically scales, squishes, and resizes the font so the lyrics perfectly form an aesthetic, rigid text block.
