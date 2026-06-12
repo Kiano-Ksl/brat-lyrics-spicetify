@@ -4,13 +4,20 @@ Bring the iconic, chaotic, and aesthetic "Brat" vibe straight to your Spotify.
 
 Instead of regular boring lyrics, **Brat Lyrics** transforms your currently playing song into a massive, edge-to-edge, lowercase text block that perfectly captures the viral Brat aesthetic. 
 
-![Brat Lyrics Demo](demo.gif)
+![Brat Lyrics Main Demo](preview.gif)
 
 ## ✨ Features
 * **Authentic Auto-Square Engine:** Automatically scales, squishes, and resizes the font so the lyrics perfectly form an aesthetic, rigid text block.
 * **The "Brat" Filter:** Applies the signature slight blur and lowercase-only formatting to all texts.
 * **Punctuation Sweeper:** Automatically cleans up annoying parentheses `()` from the lyrics to keep the block looking clean.
 * **Real-time Color Customizer:** Click the handy **⚙ (Gear)** icon on the top screen to change the background and text color on the fly to match your mood!
+
+![Color Customizer Demo](color.gif)
+
+## 🖱️ How to Use
+Simply play a song and click the **Brat Lyrics** button located on your Spotify topbar.
+
+![Brat Lyrics Button](button.png)
 
 ## 📥 How to Install
 
