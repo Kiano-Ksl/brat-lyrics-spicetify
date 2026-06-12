@@ -2,7 +2,7 @@
   "name": "Brat Lyrics",
   "description": "Transforms your currently playing song lyrics into a massive, edge-to-edge, lowercase text block featuring the iconic Brat aesthetic. Includes real-time background and text color customization.",
   "main": "brat-lyric.js",
-  "preview": "Sampul .gif",
+  "preview": "preview.gif",
   "readme": "README.md",
   "tags": ["lyrics", "aesthetic", "brat", "customization", "ui"]
 }
