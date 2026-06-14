@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/spicetify/spicetify-cli/main/assets/logo.png" width="65" alt="Spicetify Logo">
-</p>
-
 # 🟩 Brat Lyrics for Spicetify
 
 ![Version](https://img.shields.io/badge/version-v1.0-8ACE00?style=for-the-badge)
