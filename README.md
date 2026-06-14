@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://spicetify.app/img/logo.svg" width="65" alt="Spicetify Logo">
+  <img src="https://raw.githubusercontent.com/spicetify/spicetify-cli/main/assets/logo.png" width="65" alt="Spicetify Logo">
 </p>
 
 # 🟩 Brat Lyrics for Spicetify
