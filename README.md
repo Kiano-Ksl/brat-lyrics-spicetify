@@ -3,7 +3,7 @@
 </p>
 
 
-# 🟩 Brat Lyrics for Spicetify.
+# 🟩 Brat Lyrics for Spicetify
 
 ![Version](https://img.shields.io/badge/version-v1.0-8ACE00?style=for-the-badge)
 ![Status](https://img.shields.io/badge/status-Active-success?style=for-the-badge)
