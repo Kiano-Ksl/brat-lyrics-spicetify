@@ -12,7 +12,7 @@
 
 Bring the iconic, chaotic, and aesthetic "Brat" vibe straight to your Spotify.
 
-Instead of regular boring lyrics, **Brat Lyrics** transforms your currently playing song into a massive, edge-to-edge, lowercase text block that perfectly captures the viral Brat aesthetic
+Instead of regular boring lyrics, **Brat Lyrics** transforms your currently playing song into a massive, edge-to-edge, lowercase text block that perfectly captures the viral Brat aesthetic.
 
 ![Brat Lyrics Main Demo](demo.gif)
 
