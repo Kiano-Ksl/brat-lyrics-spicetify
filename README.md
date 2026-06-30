@@ -10,7 +10,7 @@
 ![Platform](https://img.shields.io/badge/Spicetify-Extension-1ED760?style=for-the-badge&logo=spotify&logoColor=white)
 ![Tech](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
 
-Bring the iconic, chaotic, and aesthetic "Brat" vibe straight to your Spotify
+Bring the iconic, chaotic, and aesthetic "Brat" vibe straight to your Spotify.
 
 Instead of regular boring lyrics, **Brat Lyrics** transforms your currently playing song into a massive, edge-to-edge, lowercase text block that perfectly captures the viral Brat aesthetic.
 
