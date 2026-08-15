@@ -48,4 +48,3 @@ Simply play a song and click the **Brat Lyrics** button located on your Spotify 
 7. All done!
 
 ---
-*Created with chaotic energy. Enjoy the aesthetics!*
