@@ -5,10 +5,7 @@
 
 # 🟩 Brat Lyrics for Spicetify
 
-![Version](https://img.shields.io/badge/version-v1.0-8ACE00?style=for-the-badge)
-![Status](https://img.shields.io/badge/status-Active-success?style=for-the-badge)
-![Platform](https://img.shields.io/badge/Spicetify-Extension-1ED760?style=for-the-badge&logo=spotify&logoColor=white)
-![Tech](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![Version](https://img.shields.io/badge/version-v1.0-8ACE00?style=for-the-badge) ![Status](https://img.shields.io/badge/status-Active-success?style=for-the-badge) ![Platform](https://img.shields.io/badge/Spicetify-Extension-1ED760?style=for-the-badge&logo=spotify&logoColor=white) ![Tech](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
 
 Bring the iconic, chaotic, and aesthetic "Brat" vibe straight to your Spotify.
 
