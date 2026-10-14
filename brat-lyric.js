@@ -4,7 +4,7 @@
     const GITHUB_REPO_URL = "https://github.com/Kiano-Ksl/brat-lyrics-spicetify";   
     const SPICY_API_URL = "https://api.spicylyrics.org/query";
     const SPICY_CLIENT_VERSION = "5.18.0";
-/
+
     if (!window.Spicetify || !Spicetify.Player || !document.body) {
         setTimeout(BratLyricsExtension, 250);
         return;
