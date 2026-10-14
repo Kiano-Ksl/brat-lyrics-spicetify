@@ -12,7 +12,7 @@ Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently
 
 ![Brat Lyrics Main Demo](demo.gif)
 
-## ✨ What's New in v2.0
+##  What's New in v2.0
 - **Word-by-Word / Syllable Tracking:** Lyrics now pop in word-by-word in sync with the vocalist using multi-source TTML & syllable pipelines.
 - **3 Display Modes:**
   - **Word by Word (Auto-Zoom):** Words accumulate one by one while dynamically resizing the square block.
@@ -25,7 +25,7 @@ Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently
 
 ![Color Customizer Demo](color.gif)
 
-## 🖱️ How to Use
+##  How to Use
 1. Play any song on Spotify.
 2. Click the green **`[b]`** icon located in the **bottom-right Playbar** (next to the native microphone/lyrics icon), or press **`Alt + B`** on your keyboard.
 3. Hover over the top-center of the screen and click the **⚙ (Gear)** icon to customize Display Mode, Transition Style, Auto Color Flip, Theme Presets, and Sync Offset!
@@ -58,5 +58,5 @@ Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently
   - **[Spicy Lyrics](https://github.com/spikerko/SpicyLyrics)** by spikerko - Multi-provider fallback and parsing logic (Licensed under [MIT](https://choosealicense.com/licenses/mit/)).
   - **[LyricsPlus / YouLy+](https://github.com/spicetify/spicetify-extensions/tree/master/lyrics-plus)** (prjktla) & **[LRCLIB](https://lrclib.net/)**.
 
-## 📄 License
+##  License
 This project is open-source and available under the [MIT License](https://choosealicense.com/licenses/mit/).
