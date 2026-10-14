@@ -12,7 +12,7 @@ Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently
 
 ![Brat Lyrics Main Demo](demo.gif)
 
-##  What's New in v2.0
+## ✨ What's New in v2.0
 - **Word-by-Word / Syllable Tracking:** Lyrics now pop in word-by-word in sync with the vocalist using multi-source TTML & syllable pipelines.
 - **3 Display Modes:**
   - **Word by Word (Auto-Zoom):** Words accumulate one by one while dynamically resizing the square block.
@@ -23,9 +23,19 @@ Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently
 - **Real-time Sync Offset Calibration:** Fine-tune lyric timing on the fly (`-50ms` / `+50ms`) to match Bluetooth headphones or external speakers.
 - **Playbar Integration & Shortcut:** Dedicated **`[b]`** button right in your bottom-right Playbar extra controls + quick **`Alt + B`** keyboard shortcut.
 
+## ⚙️ Customization Menus
+
+You can deeply customize how the lyrics behave through the new Settings menu. Here's a breakdown of the key options:
+
+| Option | Screenshot | Description |
+| :--- | :---: | :--- |
+| **Display Mode** | <img src="DisplayMode.png" width="250"> | Choose how lyrics appear: **Auto-Zoom** dynamically resizes the box, **Locked Box** keeps the geometry fixed, or **Instant Square** for classic full-sentence rendering. |
+| **Transition Style** | <img src="TransitionStyle.png" width="250"> | Customize the animation of the text. Go for the classic **Rigid** pop, a subtle **Smooth Fade**, or a **Kinetic Slide Up** for a more energetic feel. |
+| **Auto Color Flip** | <img src="ThemePreset.png" width="250"> | Enable the signature "Brat" edit effect. The background and text colors will swap automatically. Choose to flip **Randomly (Every 1-3 Lines)**, **Every Single Line**, or turn it off entirely for manual control. |
+
 ![Color Customizer Demo](color.gif)
 
-##  How to Use
+## 🖱️ How to Use
 1. Play any song on Spotify.
 2. Click the green **`[b]`** icon located in the **bottom-right Playbar** (next to the native microphone/lyrics icon), or press **`Alt + B`** on your keyboard.
 3. Hover over the top-center of the screen and click the **⚙ (Gear)** icon to customize Display Mode, Transition Style, Auto Color Flip, Theme Presets, and Sync Offset!
@@ -58,5 +68,5 @@ Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently
   - **[Spicy Lyrics](https://github.com/spikerko/SpicyLyrics)** by spikerko - Multi-provider fallback and parsing logic (Licensed under [MIT](https://choosealicense.com/licenses/mit/)).
   - **[LyricsPlus / YouLy+](https://github.com/spicetify/spicetify-extensions/tree/master/lyrics-plus)** (prjktla) & **[LRCLIB](https://lrclib.net/)**.
 
-##  License
+## 📄 License
 This project is open-source and available under the [MIT License](https://choosealicense.com/licenses/mit/).
