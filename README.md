@@ -54,9 +54,9 @@ Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently
 ## 🙏 Credits & Acknowledgments
 - Inspired by the viral Brat album aesthetic by Charli XCX.
 - Core lyric synchronization, parsing logic, and architectural inspiration respectfully credit the following developers and projects:
-  - **4argon** - For foundational logic and parsing contributions.
-  - **Spicy Lyrics** by spikerko - Multi-provider fallback and parsing logic (Licensed under MIT).
-  - **LyricsPlus / YouLy+** (prjktla) & **LRCLIB**.
+  - **[4argon](https://github.com/4argon)** - For foundational logic and parsing contributions.
+  - **[Spicy Lyrics](https://github.com/spikerko/SpicyLyrics)** by spikerko - Multi-provider fallback and parsing logic (Licensed under [MIT](https://choosealicense.com/licenses/mit/)).
+  - **[LyricsPlus / YouLy+](https://github.com/spicetify/spicetify-extensions/tree/master/lyrics-plus)** (prjktla) & **[LRCLIB](https://lrclib.net/)**.
 
 ## 📄 License
-This project is licensed under the MIT License.
+This project is open-source and available under the [MIT License](https://choosealicense.com/licenses/mit/).
