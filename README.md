@@ -46,10 +46,11 @@ You can deeply customize how the lyrics behave through the new Settings menu. He
 ## 📥 How to Install
 
 ### 1. Using the Spicetify Marketplace (Recommended)
-1. Open Spotify and go to the **Marketplace** tab (Shopping cart icon).
-2. Click on the **Extensions** tab.
-3. Search for **Brat Lyrics**.
-4. Click the install button, play a song, and click the **`[b]`** button in your bottom-right Playbar!
+1. Make sure you have [Spicetify](https://spicetify.app/) installed.
+2. Open Spotify and go to the **Marketplace** tab (Shopping cart icon).
+3. Click on the **Extensions** tab.
+4. Search for **Brat Lyrics**.
+5. Click the install button, play a song, and click the **`[b]`** button in your bottom-right Playbar!
 
 ### 2. Manual Installation (For Developers)
 1. Make sure you have [Spicetify](https://spicetify.app/) installed.
