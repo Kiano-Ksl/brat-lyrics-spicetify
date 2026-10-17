@@ -10,7 +10,7 @@ Bring the iconic, chaotic, and viral **"Brat" lyric edit** aesthetic straight to
 
 Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently playing song into a dynamic, word-by-word, auto-squaring lowercase text block with real-time beat color flips—just like viral TikTok/Reels Brat edits.
 
-![Brat Lyrics Main Demo](demo.gif)
+![Brat Lyrics Main Demo](assets/demo.gif)
 
 ## ✨ What's New in v2.0
 - **Word-by-Word / Syllable Tracking:** Lyrics now pop in word-by-word in sync with the vocalist using multi-source TTML & syllable pipelines.
@@ -29,11 +29,11 @@ You can deeply customize how the lyrics behave through the new Settings menu. He
 
 | Option | Screenshot | Description |
 | :--- | :---: | :--- |
-| **Display Mode** | <img src="DisplayMode.png" width="250"> | Choose how lyrics appear: **Auto-Zoom** dynamically resizes the box, **Locked Box** keeps the geometry fixed, or **Instant Square** for classic full-sentence rendering. |
-| **Transition Style** | <img src="TransitionStyle.png" width="250"> | Customize the animation of the text. Go for the classic **Rigid** pop, a subtle **Smooth Fade**, or a **Kinetic Slide Up** for a more energetic feel. |
-| **Auto Color Flip** | <img src="ThemePreset.png" width="250"> | Enable the signature "Brat" edit effect. The background and text colors will swap automatically. Choose to flip **Randomly (Every 1-3 Lines)**, **Every Single Line**, or turn it off entirely for manual control. |
+| **Display Mode** | <img src="assets/DisplayMode.png" width="250"> | Choose how lyrics appear: **Auto-Zoom** dynamically resizes the box, **Locked Box** keeps the geometry fixed, or **Instant Square** for classic full-sentence rendering. |
+| **Transition Style** | <img src="assets/TransitionStyle.png" width="250"> | Customize the animation of the text. Go for the classic **Rigid** pop, a subtle **Smooth Fade**, or a **Kinetic Slide Up** for a more energetic feel. |
+| **Auto Color Flip** | <img src="assets/ThemePreset.png" width="250"> | Enable the signature "Brat" edit effect. The background and text colors will swap automatically. Choose to flip **Randomly (Every 1-3 Lines)**, **Every Single Line**, or turn it off entirely for manual control. |
 
-![Color Customizer Demo](color.gif)
+![Color Customizer Demo](assets/color.gif)
 
 ## 🖱️ How to Use
 1. Play any song on Spotify.
@@ -41,7 +41,7 @@ You can deeply customize how the lyrics behave through the new Settings menu. He
 3. Hover over the top-center of the screen and click the **⚙ (Gear)** icon to customize Display Mode, Transition Style, Auto Color Flip, Theme Presets, and Sync Offset!
 4. Press **`Esc`** or click **`✕`** to exit.
 
-![Brat Lyrics Button](button.png)
+![Brat Lyrics Button](assets/button.png)
 
 ## 📥 How to Install
 
