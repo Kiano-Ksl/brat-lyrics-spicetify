@@ -55,8 +55,12 @@ You can deeply customize how the lyrics behave through the new Settings menu. He
 ### 2. Manual Installation (For Developers)
 1. Make sure you have [Spicetify](https://spicetify.app/) installed.
 2. Download the `brat-lyric.js` file from this repository.
-3. Place `brat-lyric.js` inside your Spicetify `Extensions` directory (run `spicetify path userdata` to find it).
-4. Open your terminal / PowerShell and run:
+3. Open your terminal / PowerShell and run this command to automatically open your Spicetify folder:
+   ```powershell
+   spicetify config-dir
+   ```
+4. In the folder that just opened, find the `Extensions` folder and place the `brat-lyric.js` file inside it.
+5. Go back to your terminal / PowerShell and run:
    ```powershell
    spicetify config extensions brat-lyric.js
    spicetify apply
