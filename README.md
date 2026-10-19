@@ -69,7 +69,6 @@ You can deeply customize how the lyrics behave through the new Settings menu. He
 ## 🙏 Credits & Acknowledgments
 - Inspired by the viral Brat album aesthetic by Charli XCX.
 - Core lyric synchronization, parsing logic, and architectural inspiration respectfully credit the following developers and projects:
-  - **[4argon](https://github.com/4argon)** - For foundational logic and parsing contributions.
   - **[Spicy Lyrics](https://github.com/spikerko/SpicyLyrics)** by spikerko - Multi-provider fallback and parsing logic (Licensed under [MIT](https://choosealicense.com/licenses/mit/)).
   - **[LyricsPlus / YouLy+](https://github.com/spicetify/spicetify-extensions/tree/master/lyrics-plus)** (prjktla) & **[LRCLIB](https://lrclib.net/)**.
 
