@@ -1,7 +1,7 @@
 (function BratLyricsExtension() {
-    const CURRENT_VERSION = "2.0.0";    
+    const CURRENT_VERSION = "2.1.0";
     const UPDATE_CHECK_URL = "https://raw.githubusercontent.com/Kiano-Ksl/brat-lyrics-spicetify/main/version.json";
-    const GITHUB_REPO_URL = "https://github.com/Kiano-Ksl/brat-lyrics-spicetify";   
+    const GITHUB_REPO_URL = "https://github.com/Kiano-Ksl/brat-lyrics-spicetify";
     const SPICY_API_URL = "https://api.spicylyrics.org/query";
     const SPICY_CLIENT_VERSION = "5.18.0";
 
@@ -38,80 +38,216 @@
             return parseFloat(str) || 0;
         }
 
-        static fromSpicyLyricsJson(rawPayload, allowLineFallback = false) {
-            if (!rawPayload) return null;
+        static expandMultiWordTokens(words) {
+            if (!Array.isArray(words) || words.length === 0) return [];
+            const expanded = [];
+            for (const w of words) {
+                const text = this.cleanText(w?.text || "");
+                if (!text) continue;
+                const parts = text.split(" ").filter(Boolean);
+                if (parts.length <= 1) {
+                    expanded.push({
+                        text,
+                        startTime: Number(w.startTime || 0),
+                        endTime: Number(w.endTime || (w.startTime || 0) + 0.25)
+                    });
+                } else {
+                    const splitItems = this.fallbackSplitWords(
+                        text,
+                        Number(w.startTime || 0),
+                        Math.max(Number(w.startTime || 0) + 0.35, Number(w.endTime || 0))
+                    );
+                    expanded.push(...splitItems);
+                }
+            }
+            return expanded;
+        }
+
+        static unwrapSpicyPayload(rawPayload, depth = 0) {
+            if (!rawPayload || depth > 7) return null;
 
             let data = rawPayload;
             if (typeof data === "string") {
-                try {
-                    data = JSON.parse(data);
-                } catch (_) {
+                const trimmed = data.trim();
+                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                    try {
+                        data = JSON.parse(trimmed);
+                    } catch (_) {
+                        return null;
+                    }
+                } else {
                     return null;
                 }
             }
 
-            if (Array.isArray(data?.queries)) {
-                const lyricQuery = data.queries.find((q) => q?.result?.data);
-                data = lyricQuery?.result?.data || data;
-                if (typeof data === "string") {
-                    try {
-                        data = JSON.parse(data);
-                    } catch (_) {
-                        return null;
-                    }
+            if (!data || typeof data !== "object") return null;
+
+            if (
+                Array.isArray(data.Content) ||
+                Array.isArray(data.content) ||
+                Array.isArray(data.Lines) ||
+                Array.isArray(data.lines)
+            ) {
+                return data;
+            }
+
+            if (Array.isArray(data.jobs)) {
+                for (const job of data.jobs) {
+                    const unwrapped = this.unwrapSpicyPayload(
+                        job?.result?.data ?? job?.result?.response ?? job?.result ?? job?.data,
+                        depth + 1
+                    );
+                    if (unwrapped) return unwrapped;
                 }
             }
 
-            const syncType = String(data?.Type || data?.type || "");
+            if (Array.isArray(data.queries)) {
+                for (const q of data.queries) {
+                    const unwrapped = this.unwrapSpicyPayload(
+                        q?.result?.data ?? q?.result?.response ?? q?.result ?? q?.data,
+                        depth + 1
+                    );
+                    if (unwrapped) return unwrapped;
+                }
+            }
+
+            const nestedKeys = ["result", "data", "content", "value", "lyrics", "payload", "response", "body"];
+            for (const key of nestedKeys) {
+                if (data[key] !== undefined && data[key] !== null) {
+                    const unwrapped = this.unwrapSpicyPayload(data[key], depth + 1);
+                    if (unwrapped) return unwrapped;
+                }
+            }
+
+            return null;
+        }
+
+        static extractSyllableWords(syllables, timeDivisor) {
+            const words = [];
+            let wordBuffer = "";
+            let wordStart = null;
+            let wordEnd = null;
+
+            for (let s = 0; s < syllables.length; s++) {
+                const syl = syllables[s];
+                if (syl?.IsBackground || syl?.isBackground || syl?.background) continue;
+
+                const rawSylText = String(syl?.Text ?? syl?.text ?? "");
+                const sStart = Number(syl?.StartTime ?? syl?.startTime ?? syl?.time ?? 0) / timeDivisor;
+                const sEndRaw = syl?.EndTime ?? syl?.endTime ?? syl?.endtime;
+                const sDurRaw = syl?.Duration ?? syl?.duration;
+                const sEnd =
+                    sEndRaw !== undefined
+                        ? Number(sEndRaw) / timeDivisor
+                        : sDurRaw !== undefined
+                        ? sStart + Number(sDurRaw) / timeDivisor
+                        : sStart + 0.2;
+
+                const hasPartFlag =
+                    syl?.IsPartOfWord !== undefined ||
+                    syl?.isPartOfWord !== undefined ||
+                    syl?.part !== undefined;
+                const isPart = Boolean(syl?.IsPartOfWord ?? syl?.isPartOfWord ?? syl?.part);
+
+                if (/^\s/.test(rawSylText) && wordBuffer) {
+                    const cleanedPrev = this.cleanText(wordBuffer);
+                    if (cleanedPrev) {
+                        words.push({
+                            text: cleanedPrev,
+                            startTime: Number(wordStart.toFixed(3)),
+                            endTime: Number(wordEnd.toFixed(3))
+                        });
+                    }
+                    wordBuffer = "";
+                    wordStart = null;
+                }
+
+                if (wordStart === null) wordStart = sStart;
+                wordEnd = Math.max(sStart + 0.05, sEnd);
+                wordBuffer += rawSylText.trim();
+
+                const shouldFlush = hasPartFlag
+                    ? !isPart || /\s$/.test(rawSylText) || s === syllables.length - 1
+                    : /\s$/.test(rawSylText) || s === syllables.length - 1;
+
+                if (shouldFlush) {
+                    const cleanedWord = this.cleanText(wordBuffer);
+                    if (cleanedWord) {
+                        words.push({
+                            text: cleanedWord,
+                            startTime: Number(wordStart.toFixed(3)),
+                            endTime: Number(wordEnd.toFixed(3))
+                        });
+                    }
+                    wordBuffer = "";
+                    wordStart = null;
+                }
+            }
+            return this.expandMultiWordTokens(words);
+        }
+
+        static fromSpicyLyricsJson(rawPayload, allowLineFallback = false) {
+            const data = this.unwrapSpicyPayload(rawPayload);
+            if (!data) return null;
+
+            const syncType = String(data?.Type ?? data?.type ?? "").toLowerCase();
             const contentList = data?.Content || data?.content || data?.Lines || data?.lines;
             if (!Array.isArray(contentList) || contentList.length === 0) return null;
 
             let maxTimestamp = 0;
             for (const item of contentList) {
-                const t = Number(item?.Lead?.EndTime ?? item?.EndTime ?? item?.StartTime ?? 0);
+                const lead = item?.Lead || item?.lead || item;
+                const syls =
+                    lead?.Syllables ||
+                    lead?.syllables ||
+                    item?.Syllables ||
+                    item?.syllables ||
+                    (Array.isArray(lead) ? lead : null);
+                const lastSylTime =
+                    Array.isArray(syls) && syls.length > 0
+                        ? Number(
+                              syls[syls.length - 1]?.EndTime ??
+                                  syls[syls.length - 1]?.endTime ??
+                                  syls[0]?.StartTime ??
+                                  0
+                          )
+                        : 0;
+                const t = Math.max(
+                    lastSylTime,
+                    Number(lead?.EndTime ?? lead?.StartTime ?? item?.EndTime ?? item?.StartTime ?? 0)
+                );
                 if (t > maxTimestamp) maxTimestamp = t;
             }
             const timeDivisor = maxTimestamp > 1800 ? 1000 : 1;
 
-            if (syncType.toLowerCase() === "syllable") {
+            const hasSyllableStructure =
+                syncType === "syllable" ||
+                syncType === "word" ||
+                contentList.some((c) => {
+                    const l = c?.Lead || c?.lead || c;
+                    const arr = l?.Syllables || l?.syllables || c?.Syllables || c?.syllables;
+                    return Array.isArray(arr) && arr.length > 1;
+                });
+
+            if (hasSyllableStructure) {
                 const lines = [];
 
                 for (let i = 0; i < contentList.length; i++) {
                     const block = contentList[i];
                     const lead = block?.Lead || block?.lead || block;
-                    const syllables = lead?.Syllables || lead?.syllables;
+                    let syllables =
+                        lead?.Syllables ||
+                        lead?.syllables ||
+                        block?.Syllables ||
+                        block?.syllables ||
+                        (Array.isArray(lead) ? lead : null);
+
+                    if ((!Array.isArray(syllables) || syllables.length === 0) && Array.isArray(block?.Background)) {
+                        syllables = block.Background[0]?.Syllables || block.Background[0]?.syllables;
+                    }
                     if (!Array.isArray(syllables) || syllables.length === 0) continue;
 
-                    const words = [];
-                    let wordBuffer = "";
-                    let wordStart = null;
-                    let wordEnd = null;
-
-                    for (let s = 0; s < syllables.length; s++) {
-                        const syl = syllables[s];
-                        const rawSylText = String(syl?.Text ?? syl?.text ?? "");
-                        const sStart = Number(syl?.StartTime ?? syl?.startTime ?? 0) / timeDivisor;
-                        const sEnd = Number(syl?.EndTime ?? syl?.endTime ?? sStart + 0.2) / timeDivisor;
-                        const isPart = Boolean(syl?.IsPartOfWord ?? syl?.isPartOfWord);
-
-                        if (wordStart === null) wordStart = sStart;
-                        wordEnd = sEnd;
-                        wordBuffer += rawSylText.trim();
-
-                        if (!isPart || /\s$/.test(rawSylText) || s === syllables.length - 1) {
-                            const cleanedWord = this.cleanText(wordBuffer);
-                            if (cleanedWord) {
-                                words.push({
-                                    text: cleanedWord,
-                                    startTime: Number(wordStart.toFixed(3)),
-                                    endTime: Number(wordEnd.toFixed(3))
-                                });
-                            }
-                            wordBuffer = "";
-                            wordStart = null;
-                        }
-                    }
-
+                    const words = this.extractSyllableWords(syllables, timeDivisor);
                     if (words.length > 0) {
                         lines.push({
                             startTime: words[0].startTime,
@@ -122,23 +258,43 @@
                     }
                 }
 
-                return lines.length > 0 ? { lines, isWordSynced: true } : null;
+                if (lines.length > 0) {
+                    return { lines, isWordSynced: true };
+                }
             }
 
-            if (syncType.toLowerCase() === "line" && allowLineFallback) {
+            if (allowLineFallback) {
                 const lines = [];
 
                 for (let i = 0; i < contentList.length; i++) {
                     const block = contentList[i];
                     const nextBlock = contentList[i + 1];
-                    const rawText = String(block?.Text ?? block?.text ?? "");
+                    const lead = block?.Lead || block?.lead || block;
+                    const rawText = String(
+                        block?.Text ?? block?.text ?? lead?.Text ?? lead?.text ?? block?.Words ?? ""
+                    );
                     const cleaned = this.cleanText(rawText);
                     if (!cleaned) continue;
 
-                    const start = Number(block?.StartTime ?? block?.startTime ?? 0) / timeDivisor;
-                    const endRaw = Number(block?.EndTime ?? block?.endTime ?? 0) / timeDivisor;
+                    const start =
+                        Number(
+                            block?.StartTime ??
+                                block?.startTime ??
+                                lead?.StartTime ??
+                                lead?.startTime ??
+                                0
+                        ) / timeDivisor;
+                    const endRaw =
+                        Number(
+                            block?.EndTime ?? block?.endTime ?? lead?.EndTime ?? lead?.endTime ?? 0
+                        ) / timeDivisor;
                     const nextStart = nextBlock
-                        ? Number(nextBlock?.StartTime ?? nextBlock?.startTime ?? start + 3.5) / timeDivisor
+                        ? Number(
+                              nextBlock?.StartTime ??
+                                  nextBlock?.startTime ??
+                                  nextBlock?.Lead?.StartTime ??
+                                  start + 3.5
+                          ) / timeDivisor
                         : start + 3.5;
                     const end = endRaw > start ? endRaw : nextStart;
 
@@ -159,17 +315,47 @@
             return null;
         }
 
-        static fromLyricsPlusJson(data, allowLineFallback = false) {
-            const rawLyrics = data?.lyrics;
+        static fromLyricsPlusJson(rawInput, allowLineFallback = false) {
+            let data = rawInput;
+            if (typeof data === "string") {
+                try {
+                    data = JSON.parse(data);
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            const rawLyrics = data?.lyrics || data?.data?.lyrics || (Array.isArray(data) ? data : null);
             if (!Array.isArray(rawLyrics) || rawLyrics.length === 0) return null;
 
-            const hasSyllables = rawLyrics.some(
-                (l) => Array.isArray(l.syllabus) && l.syllabus.length > 0
-            );
+            const isLineType = String(data?.type ?? data?.Type ?? "").toLowerCase() === "line";
+            const multiWordLines = rawLyrics.filter((l) => {
+                const txt = this.cleanText(l?.text || "");
+                return txt.split(" ").filter(Boolean).length >= 3;
+            });
+
+            const hasSyllables =
+                !isLineType &&
+                (multiWordLines.length > 0
+                    ? multiWordLines.some((l) => {
+                          const sylArr = l?.syllabus || l?.syllables || l?.words;
+                          return Array.isArray(sylArr) && sylArr.length >= 3;
+                      })
+                    : rawLyrics.some((l) => {
+                          const sylArr = l?.syllabus || l?.syllables || l?.words;
+                          return Array.isArray(sylArr) && sylArr.length > 1;
+                      }));
 
             if (!hasSyllables && !allowLineFallback) {
                 return null;
             }
+
+            let maxTime = 0;
+            for (const l of rawLyrics) {
+                const t = Number(l?.time ?? l?.startTime ?? 0);
+                if (t > maxTime) maxTime = t;
+            }
+            const divisor = maxTime > 1800 ? 1000 : 1;
 
             const lines = [];
 
@@ -177,30 +363,32 @@
                 const line = rawLyrics[i];
                 const nextLine = rawLyrics[i + 1];
 
-                const lineStart = Number(line.time || 0) / 1000;
-                const lineDur = Number(line.duration || 0) / 1000;
+                const lineStart = Number(line.time ?? line.startTime ?? 0) / divisor;
+                const lineDur = Number(line.duration ?? 0) / divisor;
                 const lineEnd =
                     lineDur > 0
                         ? lineStart + lineDur
                         : nextLine
-                        ? Number(nextLine.time) / 1000
+                        ? Number(nextLine.time ?? nextLine.startTime ?? (lineStart + 3.5) * divisor) / divisor
                         : lineStart + 3.5;
 
-                const cleanedLine = this.cleanText(line.text || "");
-                if (!cleanedLine) continue;
+                const sylList = line.syllabus || line.syllables || line.words;
+                let words = [];
 
-                const words = [];
-
-                if (Array.isArray(line.syllabus) && line.syllabus.length > 0) {
+                if (hasSyllables && Array.isArray(sylList) && sylList.length > 0) {
                     let wordBuffer = "";
                     let wordStart = null;
                     let wordEnd = null;
 
-                    for (let s = 0; s < line.syllabus.length; s++) {
-                        const syl = line.syllabus[s];
-                        if (syl.isBackground) continue;
+                    const allHaveNoSpaces = sylList.every(
+                        (s) => !/\s/.test(String(s?.text ?? s?.Text ?? "")) && s?.part === undefined
+                    );
 
-                        const rawSyl = String(syl.text || "");
+                    for (let s = 0; s < sylList.length; s++) {
+                        const syl = sylList[s];
+                        if (syl.isBackground || syl.background) continue;
+
+                        const rawSyl = String(syl.text ?? syl.Text ?? "");
                         const startsWithSpace = /^\s/.test(rawSyl);
                         const endsWithSpace = /\s$/.test(rawSyl);
 
@@ -217,14 +405,26 @@
                             wordStart = null;
                         }
 
-                        const sStart = Number(syl.time || 0) / 1000;
-                        const sEnd = sStart + Number(syl.duration || 180) / 1000;
+                        const sStart = Number(syl.time ?? syl.timestamp ?? syl.startTime ?? 0) / divisor;
+                        const sDur = Number(syl.duration ?? 180) / divisor;
+                        const sEnd =
+                            syl.endtime !== undefined
+                                ? Number(syl.endtime) / divisor
+                                : syl.endTime !== undefined
+                                ? Number(syl.endTime) / divisor
+                                : sStart + (sDur > 0 ? sDur : 0.18);
 
                         if (wordStart === null) wordStart = sStart;
-                        wordEnd = sEnd;
+                        wordEnd = Math.max(sStart + 0.04, sEnd);
                         wordBuffer += rawSyl.trim();
 
-                        if (endsWithSpace || s === line.syllabus.length - 1) {
+                        const isEndOfWord =
+                            allHaveNoSpaces ||
+                            syl.part === false ||
+                            endsWithSpace ||
+                            s === sylList.length - 1;
+
+                        if (isEndOfWord) {
                             const cw = this.cleanText(wordBuffer);
                             if (cw) {
                                 words.push({
@@ -237,11 +437,16 @@
                             wordStart = null;
                         }
                     }
+
+                    words = this.expandMultiWordTokens(words);
                 }
 
+                const cleanedLine =
+                    this.cleanText(line.text || "") || words.map((w) => w.text).join(" ");
+                if (!cleanedLine) continue;
+
                 if (words.length === 0) {
-                    if (!allowLineFallback) continue;
-                    words.push(...this.fallbackSplitWords(cleanedLine, lineStart, lineEnd));
+                    words = this.fallbackSplitWords(cleanedLine, lineStart, lineEnd);
                 }
 
                 lines.push({
@@ -273,14 +478,23 @@
                 }
             }
 
-            if (typeof ttmlXml !== "string" || !ttmlXml.includes("<p")) return null;
+            if (typeof ttmlXml !== "string" || (!ttmlXml.includes("<p") && !ttmlXml.includes("<tt:p"))) {
+                return null;
+            }
 
             const parser = new DOMParser();
-            const doc = parser.parseFromString(ttmlXml, "text/xml");
-            const pList = Array.from(doc.getElementsByTagName("p"));
+            let doc = parser.parseFromString(ttmlXml, "text/xml");
+            let pList = Array.from(doc.getElementsByTagName("p"));
+            if (pList.length === 0) {
+                pList = Array.from(doc.getElementsByTagName("tt:p"));
+            }
+            if (pList.length === 0) {
+                doc = parser.parseFromString(ttmlXml, "text/html");
+                pList = Array.from(doc.querySelectorAll("p, tt\\:p"));
+            }
             if (pList.length === 0) return null;
 
-            let foundAnyTimedSpan = false;
+            let hasMultiSpanLine = false;
             const lines = [];
 
             for (let i = 0; i < pList.length; i++) {
@@ -295,7 +509,8 @@
                     ? this.parseTime(nextP.getAttribute("begin"))
                     : lineStart + 3.5;
 
-                const words = [];
+                let words = [];
+                const rawTimedSpans = [];
                 let wordBuffer = "";
                 let wordStart = null;
                 let wordEnd = null;
@@ -324,7 +539,7 @@
                             const b = node.getAttribute("begin");
                             const e = node.getAttribute("end");
 
-                            const childSpans = node.getElementsByTagName("span");
+                            const childSpans = node.querySelectorAll("span, tt\\:span");
                             if (childSpans.length > 0) {
                                 walkNodes(node);
                                 continue;
@@ -332,9 +547,17 @@
 
                             const textVal = node.textContent || "";
                             if (b) {
-                                foundAnyTimedSpan = true;
                                 const sStart = this.parseTime(b);
                                 const sEnd = e ? this.parseTime(e) : sStart + 0.2;
+
+                                const cleanToken = this.cleanText(textVal);
+                                if (cleanToken) {
+                                    rawTimedSpans.push({
+                                        text: cleanToken,
+                                        startTime: Number(sStart.toFixed(3)),
+                                        endTime: Number(sEnd.toFixed(3))
+                                    });
+                                }
 
                                 if (/^\s/.test(textVal) && wordBuffer) {
                                     flushWord();
@@ -360,12 +583,24 @@
                 walkNodes(p);
                 flushWord();
 
-                const fullCleaned = this.cleanText(p.textContent || "");
+                if (rawTimedSpans.length > 1) {
+                    hasMultiSpanLine = true;
+                }
+
+                if (words.length <= 1 && rawTimedSpans.length > 1) {
+                    words = [...rawTimedSpans];
+                }
+
+                words = this.expandMultiWordTokens(words);
+
+                const fullCleaned =
+                    words.length > 0
+                        ? words.map((w) => w.text).join(" ")
+                        : this.cleanText(p.textContent || "");
                 if (!fullCleaned) continue;
 
                 if (words.length === 0) {
-                    if (!allowLineFallback) continue;
-                    words.push(...this.fallbackSplitWords(fullCleaned, lineStart, lineEnd));
+                    words = this.fallbackSplitWords(fullCleaned, lineStart, lineEnd);
                 }
 
                 lines.push({
@@ -376,31 +611,35 @@
                 });
             }
 
-            if (!foundAnyTimedSpan && !allowLineFallback) return null;
-            return lines.length > 0 ? { lines, isWordSynced: foundAnyTimedSpan } : null;
+            if (!hasMultiSpanLine && !allowLineFallback) return null;
+            return lines.length > 0 ? { lines, isWordSynced: hasMultiSpanLine } : null;
         }
 
-        static fromPaxsenixJson(rawInput) {
+        static fromPaxsenixJson(rawInput, allowLineFallback = false) {
             if (!rawInput) return null;
 
             let data = rawInput;
             if (typeof data === "string") {
-                if (data.trim().startsWith("<")) {
-                    return this.fromTTML(data, false);
+                const trimmed = data.trim();
+                if (trimmed.startsWith("<")) {
+                    return this.fromTTML(trimmed, allowLineFallback);
                 }
                 try {
-                    data = JSON.parse(data);
+                    data = JSON.parse(trimmed);
                 } catch (_) {
                     return null;
                 }
             }
 
-            if (typeof data?.ttml === "string" && data.ttml.includes("<p")) {
-                return this.fromTTML(data.ttml, false);
+            if (typeof data?.ttml === "string" && (data.ttml.includes("<p") || data.ttml.includes("<tt:p"))) {
+                return this.fromTTML(data.ttml, allowLineFallback);
             }
-            if (typeof data?.lyrics === "string" && data.lyrics.includes("<p")) {
-                return this.fromTTML(data.lyrics, false);
+            if (typeof data?.lyrics === "string" && (data.lyrics.includes("<p") || data.lyrics.includes("<tt:p"))) {
+                return this.fromTTML(data.lyrics, allowLineFallback);
             }
+
+            const spicyAttempt = this.fromSpicyLyricsJson(data, allowLineFallback);
+            if (spicyAttempt?.isWordSynced) return spicyAttempt;
 
             const rawArray = Array.isArray(data)
                 ? data
@@ -408,12 +647,14 @@
                 ? data.content
                 : Array.isArray(data.lyrics)
                 ? data.lyrics
+                : Array.isArray(data.data)
+                ? data.data
                 : null;
 
             if (!rawArray || rawArray.length === 0) return null;
 
-            if (rawArray.some((item) => Array.isArray(item.syllabus))) {
-                return this.fromLyricsPlusJson({ lyrics: rawArray, type: "Word" }, false);
+            if (rawArray.some((item) => Array.isArray(item.syllabus) || Array.isArray(item.syllables))) {
+                return this.fromLyricsPlusJson({ lyrics: rawArray, type: data.type || "Word" }, allowLineFallback);
             }
 
             const lines = [];
@@ -425,43 +666,8 @@
                 const lineEnd = Number(item.endtime ?? item.endTime ?? lineStart * 1000 + 3000) / 1000;
 
                 if (Array.isArray(item.text) && item.text.length > 0) {
-                    hasWordTimings = true;
-                    const words = [];
-                    let wordBuffer = "";
-                    let wordStart = null;
-                    let wordEnd = null;
-
-                    for (let s = 0; s < item.text.length; s++) {
-                        const syl = item.text[s];
-                        if (syl.background) continue;
-
-                        const rawSyl = String(syl.text || "");
-                        const sStart = Number(syl.timestamp ?? syl.time ?? lineStart * 1000) / 1000;
-                        const sEnd = Number(syl.endtime ?? syl.endTime ?? sStart * 1000 + 200) / 1000;
-
-                        if (wordStart === null) wordStart = sStart;
-                        wordEnd = sEnd;
-                        wordBuffer += rawSyl.trim();
-
-                        const isEndOfWord =
-                            syl.part === false ||
-                            /\s$/.test(rawSyl) ||
-                            s === item.text.length - 1;
-
-                        if (isEndOfWord) {
-                            const cw = this.cleanText(wordBuffer);
-                            if (cw) {
-                                words.push({
-                                    text: cw,
-                                    startTime: Number(wordStart.toFixed(3)),
-                                    endTime: Number(wordEnd.toFixed(3))
-                                });
-                            }
-                            wordBuffer = "";
-                            wordStart = null;
-                        }
-                    }
-
+                    if (item.text.length > 1) hasWordTimings = true;
+                    const words = this.extractSyllableWords(item.text, 1000);
                     if (words.length > 0) {
                         lines.push({
                             startTime: words[0].startTime,
@@ -479,20 +685,18 @@
         static fromLRC(lrcText, allowLineFallback = false) {
             if (!lrcText || typeof lrcText !== "string") return null;
 
-            const rawLines = lrcText.split("\n");
+            const rawLines = lrcText.split(/\r?\n/);
             const parsed = [];
-            const lineTimeRgx = /\[(\d{2}):(\d{2}\.\d{2,3})\]/;
-            const wordTimeRgx = /<(\d{2}):(\d{2}\.\d{2,3})>\s*([^<]+)/g;
+            const lineTimeRgx = /\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)\]/;
+            const wordTimeRgx = /<(\d{1,2}):(\d{2}(?:\.\d{1,3})?)>\s*([^<]*)/g;
             let hasELRC = false;
 
             for (const raw of rawLines) {
                 const m = lineTimeRgx.exec(raw);
-                if (!m) continue;
-
-                const startTime = parseInt(m[1], 10) * 60 + parseFloat(m[2]);
                 const body = raw.replace(lineTimeRgx, "").trim();
 
                 const eWords = [];
+                wordTimeRgx.lastIndex = 0;
                 let wm;
                 while ((wm = wordTimeRgx.exec(body)) !== null) {
                     const wTime = parseInt(wm[1], 10) * 60 + parseFloat(wm[2]);
@@ -500,11 +704,21 @@
                     if (wText) eWords.push({ text: wText, startTime: wTime });
                 }
 
+                if (!m && eWords.length === 0) continue;
+
+                const startTime = m
+                    ? parseInt(m[1], 10) * 60 + parseFloat(m[2])
+                    : eWords[0].startTime;
+
                 if (eWords.length > 0) hasELRC = true;
 
-                const plain = this.cleanText(body.replace(/<\d{2}:\d{2}\.\d{2,3}>/g, ""));
-                if (plain) {
-                    parsed.push({ startTime, plain, eWords });
+                const plain = this.cleanText(body.replace(/<\d{1,2}:\d{2}(?:\.\d{1,3})?>/g, ""));
+                if (plain || eWords.length > 0) {
+                    parsed.push({
+                        startTime,
+                        plain: plain || eWords.map((w) => w.text).join(" "),
+                        eWords
+                    });
                 }
             }
 
@@ -516,11 +730,12 @@
                 let words = [];
 
                 if (item.eWords.length > 0) {
-                    words = item.eWords.map((w, wIdx) => ({
+                    const rawMapped = item.eWords.map((w, wIdx) => ({
                         text: w.text,
                         startTime: w.startTime,
                         endTime: item.eWords[wIdx + 1] ? item.eWords[wIdx + 1].startTime : nextStart
                     }));
+                    words = this.expandMultiWordTokens(rawMapped);
                 } else {
                     words = this.fallbackSplitWords(item.plain, item.startTime, nextStart);
                 }
@@ -538,7 +753,9 @@
 
         static fromSpotify(lyricsData, allowLineFallback = false) {
             const rawLines = lyricsData?.lines || [];
-            const isSyllable = lyricsData?.syncType === "SYLLABLE_SYNCED";
+            const isSyllable =
+                lyricsData?.syncType === "SYLLABLE_SYNCED" &&
+                rawLines.some((l) => Array.isArray(l.syllables) && l.syllables.length > 1);
             if (!isSyllable && !allowLineFallback) return null;
 
             const lines = [];
@@ -588,6 +805,7 @@
                             wStart = null;
                         }
                     }
+                    words = this.expandMultiWordTokens(words);
                 }
 
                 if (words.length === 0) {
@@ -604,6 +822,22 @@
             }
 
             return lines.length > 0 ? { lines, isWordSynced: isSyllable } : null;
+        }
+
+        static parseAnyPayload(rawInput, allowLineFallback = false) {
+            if (!rawInput) return null;
+            return (
+                this.fromSpicyLyricsJson(rawInput, false) ||
+                this.fromLyricsPlusJson(rawInput, false) ||
+                this.fromTTML(rawInput, false) ||
+                this.fromPaxsenixJson(rawInput, false) ||
+                (allowLineFallback
+                    ? this.fromSpicyLyricsJson(rawInput, true) ||
+                      this.fromLyricsPlusJson(rawInput, true) ||
+                      this.fromTTML(rawInput, true) ||
+                      this.fromPaxsenixJson(rawInput, true)
+                    : null)
+            );
         }
 
         static fallbackSplitWords(cleanLine, start, end) {
@@ -636,31 +870,62 @@
     }
 
     const interceptedSpicyCache = new Map();
+    let detectedSpicyVersion = SPICY_CLIENT_VERSION;
 
-    if (!window.__BRAT_FETCH_HOOKED__) {
-        window.__BRAT_FETCH_HOOKED__ = true;
+    function recordInterceptedPayload(rawPayload) {
+        try {
+            const currentUri = Spicetify.Player?.data?.item?.uri;
+            if (!currentUri || !rawPayload) return;
+            const parsed = BratLyricParser.parseAnyPayload(rawPayload, true);
+            if (parsed && parsed.lines?.length > 0) {
+                const existing = interceptedSpicyCache.get(currentUri);
+                if (!existing || (!existing.isWordSynced && parsed.isWordSynced)) {
+                    interceptedSpicyCache.set(currentUri, {
+                        status: "ready",
+                        lines: parsed.lines,
+                        isWordSynced: Boolean(parsed.isWordSynced)
+                    });
+                }
+            }
+        } catch (_) {}
+    }
+
+    if (!window.__BRAT_NETWORK_HOOKED__) {
+        window.__BRAT_NETWORK_HOOKED__ = true;
+
         const origFetch = window.fetch;
         window.fetch = async function (...args) {
+            try {
+                const headers = args[1]?.headers;
+                if (headers && typeof headers === "object") {
+                    const ver = headers["SpicyLyrics-Version"] || headers["spicylyrics-version"];
+                    if (ver) detectedSpicyVersion = String(ver);
+                }
+            } catch (_) {}
+
             const response = await origFetch.apply(this, args);
             try {
                 const url = String(args[0]?.url || args[0] || "");
-                if (url.includes("spicylyrics.org") || url.includes("color-lyrics") || url.includes("lyrics")) {
-                    const clone = response.clone();
-                    clone.json().then((json) => {
-                        const currentUri = Spicetify.Player?.data?.item?.uri;
-                        if (currentUri) {
-                            const parsed = BratLyricParser.fromSpicyLyricsJson(json, false);
-                            if (parsed?.isWordSynced) {
-                                interceptedSpicyCache.set(currentUri, {
-                                    status: "ready",
-                                    lines: parsed.lines
-                                });
-                            }
-                        }
-                    }).catch(() => {});
+                if (/spicylyrics|lyricsplus|paxsenix|binimum|color-lyrics|ttml/i.test(url)) {
+                    response
+                        .clone()
+                        .text()
+                        .then((txt) => recordInterceptedPayload(txt))
+                        .catch(() => {});
                 }
             } catch (_) {}
             return response;
+        };
+
+        const origResJson = Response.prototype.json;
+        Response.prototype.json = async function () {
+            const data = await origResJson.apply(this, arguments);
+            try {
+                if (this.url && /spicylyrics|lyricsplus|paxsenix|binimum|color-lyrics/i.test(this.url)) {
+                    recordInterceptedPayload(data);
+                }
+            } catch (_) {}
+            return data;
         };
     }
 
@@ -673,8 +938,16 @@
                 "https://lyricsplus.prjktla.my.id",
                 "https://lyricsplus-seven.vercel.app",
                 "https://lyricsplus.atomix.one",
-                "https://lyricsplus.binimum.org"
+                "https://lyricsplus.binimum.org",
+                "https://lyrics-plus-backend.vercel.app"
             ];
+        }
+
+        withTimeout(promise, ms = 4500) {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
+            ]);
         }
 
         async extractRichTrackMeta() {
@@ -699,10 +972,10 @@
             let isrc = item.external_ids?.isrc || item.metadata?.isrc || "";
             if (!isrc && trackId && Spicetify.CosmosAsync) {
                 try {
-                    const trackInfo = await Promise.race([
+                    const trackInfo = await this.withTimeout(
                         Spicetify.CosmosAsync.get(`https://api.spotify.com/v1/tracks/${trackId}`),
-                        new Promise((_, rej) => setTimeout(rej, 1500))
-                    ]);
+                        1400
+                    );
                     if (trackInfo?.external_ids?.isrc) {
                         isrc = trackInfo.external_ids.isrc;
                     }
@@ -712,7 +985,7 @@
             return { uri, trackId, title: cleanTitle || rawTitle, rawTitle, artist, album, durationSec, isrc };
         }
 
-        async fetchTimeout(url, options = {}, signal, ms = 6000) {
+        async fetchTimeout(url, options = {}, signal, ms = 5500) {
             const ctrl = new AbortController();
             const id = setTimeout(() => ctrl.abort(), ms);
             const onAbort = () => ctrl.abort();
@@ -726,67 +999,134 @@
             }
         }
 
+        scanLocalWebStorage(trackId) {
+            if (!trackId) return null;
+            let fallbackLine = null;
+            for (const storage of [window.localStorage, window.sessionStorage]) {
+                try {
+                    for (let i = 0; i < storage.length; i++) {
+                        const key = storage.key(i) || "";
+                        const val = storage.getItem(key) || "";
+                        if (key.includes(trackId) || val.includes(trackId)) {
+                            const parsed = BratLyricParser.parseAnyPayload(val, true);
+                            if (parsed?.isWordSynced) return parsed;
+                            if (parsed?.lines?.length > 0 && !fallbackLine) fallbackLine = parsed;
+                        }
+                    }
+                } catch (_) {}
+            }
+            return fallbackLine;
+        }
+
         async readInstalledSpicyLyricsCache(trackId) {
-            if (!trackId || !window.indexedDB) return null;
+            if (!trackId) return null;
+
+            const fromWebStorage = this.scanLocalWebStorage(trackId);
+            if (fromWebStorage?.isWordSynced) return fromWebStorage;
+
+            let bestFallback = fromWebStorage;
+
+            if (window.caches) {
+                try {
+                    const cacheNames = await this.withTimeout(window.caches.keys(), 1000);
+                    for (const cName of cacheNames) {
+                        const cache = await window.caches.open(cName);
+                        const requests = await cache.keys();
+                        for (const req of requests) {
+                            if (req.url.includes(trackId) || /spicylyrics|lyricsplus/i.test(req.url)) {
+                                const match = await cache.match(req);
+                                if (match) {
+                                    const txt = await match.clone().text();
+                                    if (txt.includes(trackId) || req.url.includes(trackId)) {
+                                        const p = BratLyricParser.parseAnyPayload(txt, true);
+                                        if (p?.isWordSynced) return p;
+                                        if (p?.lines?.length > 0 && !bestFallback) bestFallback = p;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            if (!window.indexedDB) return bestFallback;
+
             try {
-                const dbs = (await window.indexedDB.databases?.()) || [];
+                const dbs =
+                    (await this.withTimeout(window.indexedDB.databases?.() || Promise.resolve([]), 1200)) ||
+                    [];
                 for (const dbInfo of dbs) {
                     const dbName = dbInfo.name || "";
-                    if (!/spicy|lyric/i.test(dbName)) continue;
+                    if (!dbName) continue;
 
-                    const parsed = await new Promise((resolve) => {
-                        const req = window.indexedDB.open(dbName);
-                        req.onerror = () => resolve(null);
-                        req.onsuccess = () => {
-                            const db = req.result;
-                            const storeNames = Array.from(db.objectStoreNames);
-                            if (storeNames.length === 0) {
-                                db.close();
-                                resolve(null);
-                                return;
-                            }
-                            try {
-                                const tx = db.transaction(storeNames, "readonly");
-                                let resolved = false;
-                                storeNames.forEach((sName) => {
-                                    const store = tx.objectStore(sName);
-                                    const getAllReq = store.getAll();
-                                    getAllReq.onsuccess = () => {
-                                        const items = getAllReq.result || [];
-                                        for (const entry of items) {
-                                            const rawStr = JSON.stringify(entry || "");
-                                            if (rawStr.includes(trackId) || rawStr.includes("Syllable")) {
-                                                const p = BratLyricParser.fromSpicyLyricsJson(
-                                                    entry?.data || entry?.value || entry,
-                                                    false
-                                                );
-                                                if (p?.isWordSynced && !resolved) {
-                                                    resolved = true;
-                                                    resolve(p);
-                                                }
-                                            }
-                                        }
-                                    };
-                                });
-                                tx.oncomplete = () => {
-                                    db.close();
-                                    if (!resolved) resolve(null);
-                                };
-                                tx.onerror = () => {
+                    const parsed = await this.withTimeout(
+                        new Promise((resolve) => {
+                            const req = window.indexedDB.open(dbName);
+                            req.onerror = () => resolve(null);
+                            req.onsuccess = () => {
+                                const db = req.result;
+                                const storeNames = Array.from(db.objectStoreNames);
+                                if (storeNames.length === 0) {
                                     db.close();
                                     resolve(null);
-                                };
-                            } catch (_) {
-                                db.close();
-                                resolve(null);
-                            }
-                        };
-                    });
+                                    return;
+                                }
+                                try {
+                                    const tx = db.transaction(storeNames, "readonly");
+                                    let resolvedWord = null;
+                                    let resolvedLine = null;
+
+                                    storeNames.forEach((sName) => {
+                                        const store = tx.objectStore(sName);
+                                        const keysReq = store.getAllKeys();
+                                        const valsReq = store.getAll();
+
+                                        valsReq.onsuccess = () => {
+                                            const keys = keysReq.result || [];
+                                            const vals = valsReq.result || [];
+                                            for (let idx = 0; idx < vals.length; idx++) {
+                                                const kStr = String(keys[idx] ?? "");
+                                                const entry = vals[idx];
+                                                const vStr =
+                                                    typeof entry === "string"
+                                                        ? entry
+                                                        : JSON.stringify(entry || "");
+
+                                                if (kStr.includes(trackId) || vStr.includes(trackId)) {
+                                                    const p = BratLyricParser.parseAnyPayload(entry, true);
+                                                    if (p?.isWordSynced && !resolvedWord) {
+                                                        resolvedWord = p;
+                                                    } else if (p?.lines?.length > 0 && !resolvedLine) {
+                                                        resolvedLine = p;
+                                                    }
+                                                }
+                                            }
+                                        };
+                                    });
+
+                                    tx.oncomplete = () => {
+                                        db.close();
+                                        resolve(resolvedWord || resolvedLine);
+                                    };
+                                    tx.onerror = () => {
+                                        db.close();
+                                        resolve(null);
+                                    };
+                                } catch (_) {
+                                    db.close();
+                                    resolve(null);
+                                }
+                            };
+                        }),
+                        1800
+                    );
 
                     if (parsed?.isWordSynced) return parsed;
+                    if (parsed?.lines?.length > 0 && !bestFallback) bestFallback = parsed;
                 }
             } catch (_) {}
-            return null;
+
+            return bestFallback;
         }
 
         async fetchLyrics() {
@@ -797,34 +1137,102 @@
             const meta = await this.extractRichTrackMeta();
             if (signal.aborted) return { status: "aborted" };
             if (!meta || (!meta.trackId && !meta.title)) {
-                return { status: "no_track", lines: [] };
+                return { status: "no_track", lines: [], isWordSynced: false };
             }
 
-            if (this.cache.has(meta.uri)) {
+            if (this.cache.has(meta.uri) && this.cache.get(meta.uri).isWordSynced) {
                 return this.cache.get(meta.uri);
             }
 
             if (interceptedSpicyCache.has(meta.uri)) {
                 const cached = interceptedSpicyCache.get(meta.uri);
-                this.cache.set(meta.uri, cached);
-                return cached;
+                if (cached.isWordSynced) {
+                    this.cache.set(meta.uri, cached);
+                    return cached;
+                }
             }
 
             let bestLineSyncedBackup = null;
             const saveLineBackup = (lines) => {
                 if (!bestLineSyncedBackup && Array.isArray(lines) && lines.length > 0) {
-                    bestLineSyncedBackup = { status: "ready", lines };
+                    bestLineSyncedBackup = { status: "ready", lines, isWordSynced: false };
                 }
             };
 
             const wordSyncTasks = [];
+
+            wordSyncTasks.push(
+                (async () => {
+                    const lrcParams = new URLSearchParams({
+                        artist_name: meta.artist,
+                        track_name: meta.title,
+                        album_name: meta.album || meta.title
+                    });
+                    if (meta.durationSec > 0) lrcParams.set("duration", String(meta.durationSec));
+                    const lrcRes = await this.fetchTimeout(
+                        `https://lrclib.net/api/get?${lrcParams.toString()}`,
+                        { cache: "no-store" },
+                        signal,
+                        5000
+                    );
+                    if (!lrcRes.ok) throw new Error();
+                    const lrcJson = await lrcRes.json();
+
+                    const eLrcParsed =
+                        BratLyricParser.fromLRC(lrcJson?.syncedLyrics, false) ||
+                        BratLyricParser.fromLRC(lrcJson?.plainLyrics, false);
+                    if (eLrcParsed?.isWordSynced) {
+                        return { status: "ready", lines: eLrcParsed.lines, isWordSynced: true };
+                    }
+                    const stdParsed = BratLyricParser.fromLRC(lrcJson?.syncedLyrics, true);
+                    if (stdParsed) saveLineBackup(stdParsed.lines);
+                    throw new Error();
+                })()
+            );
+
+            wordSyncTasks.push(
+                (async () => {
+                    const searchParams = new URLSearchParams({
+                        track_name: meta.title,
+                        artist_name: meta.artist
+                    });
+                    const searchRes = await this.fetchTimeout(
+                        `https://lrclib.net/api/search?${searchParams.toString()}`,
+                        { cache: "no-store" },
+                        signal,
+                        5500
+                    );
+                    if (!searchRes.ok) throw new Error();
+                    const list = await searchRes.json();
+                    if (!Array.isArray(list) || list.length === 0) throw new Error();
+
+                    for (const item of list) {
+                        const eLrc =
+                            BratLyricParser.fromLRC(item?.syncedLyrics, false) ||
+                            BratLyricParser.fromLRC(item?.plainLyrics, false);
+                        if (eLrc?.isWordSynced) {
+                            return { status: "ready", lines: eLrc.lines, isWordSynced: true };
+                        }
+                    }
+
+                    const firstSynced = list.find((item) => item?.syncedLyrics);
+                    if (firstSynced?.syncedLyrics) {
+                        const std = BratLyricParser.fromLRC(firstSynced.syncedLyrics, true);
+                        if (std) saveLineBackup(std.lines);
+                    }
+                    throw new Error();
+                })()
+            );
 
             if (meta.trackId) {
                 wordSyncTasks.push(
                     (async () => {
                         const localSpicy = await this.readInstalledSpicyLyricsCache(meta.trackId);
                         if (localSpicy?.isWordSynced) {
-                            return { status: "ready", lines: localSpicy.lines };
+                            return { status: "ready", lines: localSpicy.lines, isWordSynced: true };
+                        }
+                        if (localSpicy?.lines?.length > 0) {
+                            saveLineBackup(localSpicy.lines);
                         }
                         throw new Error();
                     })()
@@ -832,35 +1240,49 @@
 
                 wordSyncTasks.push(
                     (async () => {
-                        const res = await this.fetchTimeout(
-                            SPICY_API_URL,
+                        const payloads = [
                             {
-                                method: "POST",
-                                headers: {
-                                    "Content-Type": "application/json",
-                                    "SpicyLyrics-Version": SPICY_CLIENT_VERSION
-                                },
-                                body: JSON.stringify({
-                                    jobs: [
-                                        {
-                                            handler: "lyrics",
-                                            args: { id: meta.trackId }
-                                        }
-                                    ],
-                                    client: { version: SPICY_CLIENT_VERSION }
-                                })
+                                jobs: [
+                                    {
+                                        handler: "lyrics",
+                                        args: { id: meta.trackId, auth: "SpicyLyrics-WebAuth" }
+                                    }
+                                ],
+                                client: { version: detectedSpicyVersion }
                             },
-                            signal,
-                            5500
-                        );
-                        if (!res.ok) throw new Error();
-                        const json = await res.json();
-                        const wordParsed = BratLyricParser.fromSpicyLyricsJson(json, false);
-                        if (wordParsed?.isWordSynced) {
-                            return { status: "ready", lines: wordParsed.lines };
+                            {
+                                jobs: [{ handler: "lyrics", args: { id: meta.trackId } }],
+                                client: { version: detectedSpicyVersion }
+                            },
+                            {
+                                queries: [{ operation: "lyrics", variables: { id: meta.trackId } }],
+                                client: { version: detectedSpicyVersion }
+                            }
+                        ];
+
+                        for (const bodyObj of payloads) {
+                            const res = await this.fetchTimeout(
+                                SPICY_API_URL,
+                                {
+                                    method: "POST",
+                                    headers: {
+                                        "Content-Type": "application/json",
+                                        "SpicyLyrics-Version": detectedSpicyVersion
+                                    },
+                                    body: JSON.stringify(bodyObj)
+                                },
+                                signal,
+                                5000
+                            );
+                            if (!res.ok) continue;
+                            const rawText = await res.text();
+                            const wordParsed = BratLyricParser.parseAnyPayload(rawText, false);
+                            if (wordParsed?.isWordSynced) {
+                                return { status: "ready", lines: wordParsed.lines, isWordSynced: true };
+                            }
+                            const lineParsed = BratLyricParser.parseAnyPayload(rawText, true);
+                            if (lineParsed?.lines?.length > 0) saveLineBackup(lineParsed.lines);
                         }
-                        const lineParsed = BratLyricParser.fromSpicyLyricsJson(json, true);
-                        if (lineParsed) saveLineBackup(lineParsed.lines);
                         throw new Error();
                     })()
                 );
@@ -878,7 +1300,9 @@
                         if (!r.ok) throw new Error();
                         const t = await r.text();
                         const p = BratLyricParser.fromTTML(t, false);
-                        if (p?.isWordSynced) return { status: "ready", lines: p.lines };
+                        if (p?.isWordSynced) {
+                            return { status: "ready", lines: p.lines, isWordSynced: true };
+                        }
                         throw new Error();
                     })()
                 );
@@ -900,16 +1324,16 @@
                             `${host}/v2/lyrics/get?${lpParams.toString()}`,
                             {},
                             signal,
-                            6000
+                            5500
                         );
                         if (!r.ok) throw new Error();
-                        const json = await r.json();
-                        const wordParsed = BratLyricParser.fromLyricsPlusJson(json, false);
+                        const rawText = await r.text();
+                        const wordParsed = BratLyricParser.parseAnyPayload(rawText, false);
                         if (wordParsed?.isWordSynced) {
-                            return { status: "ready", lines: wordParsed.lines };
+                            return { status: "ready", lines: wordParsed.lines, isWordSynced: true };
                         }
-                        const lineParsed = BratLyricParser.fromLyricsPlusJson(json, true);
-                        if (lineParsed) saveLineBackup(lineParsed.lines);
+                        const lineParsed = BratLyricParser.parseAnyPayload(rawText, true);
+                        if (lineParsed?.lines?.length > 0) saveLineBackup(lineParsed.lines);
                         throw new Error();
                     })()
                 );
@@ -920,19 +1344,26 @@
                     (async () => {
                         const term = encodeURIComponent(`${meta.artist} ${meta.title}`);
                         const itunesRes = await this.fetchTimeout(
-                            `https://itunes.apple.com/search?term=${term}&country=${countryCode}&entity=song&limit=6`,
+                            `https://itunes.apple.com/search?term=${term}&country=${countryCode}&entity=song&limit=10`,
                             {},
                             signal,
-                            5000
+                            4500
                         );
                         if (!itunesRes.ok) throw new Error();
                         const itunesJson = await itunesRes.json();
                         const results = itunesJson?.results || [];
                         if (results.length === 0) throw new Error();
 
-                        let matchedSong = results[0];
+                        const targetArtist = meta.artist.toLowerCase();
+                        const artistMatches = results.filter((item) => {
+                            const aName = String(item.artistName || "").toLowerCase();
+                            return aName.includes(targetArtist) || targetArtist.includes(aName);
+                        });
+                        const pool = artistMatches.length > 0 ? artistMatches : results;
+
+                        let matchedSong = pool[0];
                         let bestDelta = Infinity;
-                        for (const item of results) {
+                        for (const item of pool) {
                             const sec = Math.round((item.trackTimeMillis || 0) / 1000);
                             const delta = Math.abs(sec - meta.durationSec);
                             if (delta < bestDelta) {
@@ -942,20 +1373,23 @@
                         }
 
                         if (!matchedSong?.trackId) throw new Error();
-                        const paxRes = await this.fetchTimeout(
-                            `https://lyrics.paxsenix.org/apple-music/lyrics?id=${matchedSong.trackId}&ttml=true&v=2`,
-                            {},
-                            signal,
-                            5500
-                        );
-                        if (!paxRes.ok) throw new Error();
-                        const textData = await paxRes.text();
-                        const parsed =
-                            BratLyricParser.fromTTML(textData, false) ||
-                            BratLyricParser.fromPaxsenixJson(textData);
+                        const appleId = matchedSong.trackId;
+                        const paxUrls = [
+                            `https://lyrics.paxsenix.org/apple-music/lyrics?id=${appleId}&ttml=true&v=2`,
+                            `https://lyrics.paxsenix.org/apple-music/lyrics?id=${appleId}`,
+                            `https://api.paxsenix.org/lyrics/applemusic?id=${appleId}`
+                        ];
 
-                        if (parsed?.isWordSynced) {
-                            return { status: "ready", lines: parsed.lines };
+                        for (const pUrl of paxUrls) {
+                            try {
+                                const paxRes = await this.fetchTimeout(pUrl, {}, signal, 4500);
+                                if (!paxRes.ok) continue;
+                                const textData = await paxRes.text();
+                                const parsed = BratLyricParser.parseAnyPayload(textData, false);
+                                if (parsed?.isWordSynced) {
+                                    return { status: "ready", lines: parsed.lines, isWordSynced: true };
+                                }
+                            } catch (_) {}
                         }
                         throw new Error();
                     })()
@@ -966,11 +1400,11 @@
                 wordSyncTasks.push(
                     (async () => {
                         const spUrl = `https://spclient.wg.spotify.com/color-lyrics/v2/track/${meta.trackId}?format=json&vocalRemoval=false&market=from_token`;
-                        const spRes = await Spicetify.CosmosAsync.get(spUrl);
+                        const spRes = await this.withTimeout(Spicetify.CosmosAsync.get(spUrl), 3800);
                         if (!spRes?.lyrics) throw new Error();
                         const spWord = BratLyricParser.fromSpotify(spRes.lyrics, false);
                         if (spWord?.isWordSynced) {
-                            return { status: "ready", lines: spWord.lines };
+                            return { status: "ready", lines: spWord.lines, isWordSynced: true };
                         }
                         if (spRes.lyrics.syncType === "LINE_SYNCED") {
                             const spLine = BratLyricParser.fromSpotify(spRes.lyrics, true);
@@ -981,61 +1415,8 @@
                 );
             }
 
-            wordSyncTasks.push(
-                (async () => {
-                    const lrcParams = new URLSearchParams({
-                        artist_name: meta.artist,
-                        track_name: meta.title
-                    });
-                    if (meta.durationSec > 0) lrcParams.set("duration", String(meta.durationSec));
-                    const lrcRes = await this.fetchTimeout(
-                        `https://lrclib.net/api/get?${lrcParams.toString()}`,
-                        {},
-                        signal,
-                        5500
-                    );
-                    if (!lrcRes.ok) throw new Error();
-                    const lrcJson = await lrcRes.json();
-                    if (!lrcJson?.syncedLyrics) throw new Error();
-
-                    const eLrcParsed = BratLyricParser.fromLRC(lrcJson.syncedLyrics, false);
-                    if (eLrcParsed?.isWordSynced) {
-                        return { status: "ready", lines: eLrcParsed.lines };
-                    }
-                    const stdParsed = BratLyricParser.fromLRC(lrcJson.syncedLyrics, true);
-                    if (stdParsed) saveLineBackup(stdParsed.lines);
-                    throw new Error();
-                })()
-            );
-
-            wordSyncTasks.push(
-                (async () => {
-                    const q = encodeURIComponent(`${meta.artist} ${meta.title}`);
-                    const searchRes = await this.fetchTimeout(
-                        `https://lrclib.net/api/search?q=${q}`,
-                        {},
-                        signal,
-                        5500
-                    );
-                    if (!searchRes.ok) throw new Error();
-                    const list = await searchRes.json();
-                    if (!Array.isArray(list) || list.length === 0) throw new Error();
-
-                    const syncedItem = list.find((item) => item?.syncedLyrics);
-                    if (!syncedItem?.syncedLyrics) throw new Error();
-
-                    const eLrc = BratLyricParser.fromLRC(syncedItem.syncedLyrics, false);
-                    if (eLrc?.isWordSynced) {
-                        return { status: "ready", lines: eLrc.lines };
-                    }
-                    const std = BratLyricParser.fromLRC(syncedItem.syncedLyrics, true);
-                    if (std) saveLineBackup(std.lines);
-                    throw new Error();
-                })()
-            );
-
             try {
-                const fastestWordSync = await Promise.any(wordSyncTasks);
+                const fastestWordSync = await this.withTimeout(Promise.any(wordSyncTasks), 6500);
                 if (signal.aborted) return { status: "aborted" };
                 if (fastestWordSync?.status === "ready") {
                     this.cache.set(meta.uri, fastestWordSync);
@@ -1050,22 +1431,26 @@
                 return bestLineSyncedBackup;
             }
 
-            return { status: "empty", lines: [] };
+            return { status: "empty", lines: [], isWordSynced: false };
         }
     }
 
     class StateStore {
         constructor() {
-            this.storageKey = "brat_lyrics_pure_v8";
+            this.storageKey = "brat_lyrics_pure_v12";
             const saved = this.load();
             const validTransitions = ["rigid", "smooth", "slide"];
             const initialTransition = validTransitions.includes(saved.transitionStyle)
                 ? saved.transitionStyle
                 : "smooth";
+            const prefMode = saved.preferredDisplayMode || saved.displayMode || "word_zoom";
 
             this.state = {
                 isOpen: false,
-                displayMode: saved.displayMode || "word_zoom",
+                preferredDisplayMode: prefMode,
+                displayMode: prefMode,
+                hasNoWordSyncWarning: false,
+                isCurrentSongWordSynced: true,
                 colorFlipMode: saved.colorFlipMode || "random_1_3",
                 transitionStyle: initialTransition,
                 bgColor: saved.bgColor || "#ffffff",
@@ -1091,7 +1476,8 @@
                 window.localStorage.setItem(
                     this.storageKey,
                     JSON.stringify({
-                        displayMode: this.state.displayMode,
+                        preferredDisplayMode: this.state.preferredDisplayMode,
+                        displayMode: this.state.preferredDisplayMode,
                         colorFlipMode: this.state.colorFlipMode,
                         transitionStyle: this.state.transitionStyle,
                         bgColor: this.state.bgColor,
@@ -1106,7 +1492,7 @@
         setState(partial) {
             Object.assign(this.state, partial);
             if (
-                "displayMode" in partial ||
+                "preferredDisplayMode" in partial ||
                 "colorFlipMode" in partial ||
                 "transitionStyle" in partial ||
                 "bgColor" in partial ||
@@ -1227,6 +1613,12 @@
         }
     }
 
+    const MODE_LABELS = {
+        word_zoom: "Word by Word (Auto-Zoom)",
+        word_lock: "Word by Word (Locked Box)",
+        full_line: "Full Sentence (Instant Square)"
+    };
+
     class BratStageRenderer {
         constructor(store) {
             this.store = store;
@@ -1234,6 +1626,7 @@
             this.currentWordIdx = -1;
             this.lockedWordSpans = [];
             this.linesUntilFlip = this.getRandomFlipCount();
+            this.isModeDropdownOpen = false;
 
             this.injectStyles();
             this.buildDOM();
@@ -1394,7 +1787,7 @@
                     top: 52px;
                     left: 50%;
                     transform: translateX(-50%);
-                    min-width: 330px;
+                    min-width: 345px;
                     border: 2px solid currentColor;
                     border-radius: 10px;
                     padding: 16px;
@@ -1425,12 +1818,159 @@
                     font-size: 12px;
                     cursor: pointer;
                     outline: none;
-                    max-width: 195px;
+                    width: 215px;
                 }
                 .brat-select option {
                     background: #141414;
                     color: #ffffff;
                 }
+
+                .brat-mode-dropdown {
+                    position: relative;
+                    width: 215px;
+                    font-family: Arial, sans-serif;
+                }
+                .brat-mode-trigger {
+                    width: 100%;
+                    padding: 5px 24px 5px 8px;
+                    border-radius: 6px;
+                    border: 1.5px solid currentColor;
+                    background: transparent;
+                    color: inherit;
+                    font-weight: bold;
+                    font-size: 12px;
+                    cursor: pointer;
+                    outline: none;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    text-align: left;
+                    box-sizing: border-box;
+                    position: relative;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .brat-mode-trigger.has-warning {
+                    border-color: #3b82f6;
+                }
+                .brat-mode-arrow {
+                    position: absolute;
+                    right: 7px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    font-size: 10px;
+                    pointer-events: none;
+                }
+                .brat-top-badge {
+                    position: absolute;
+                    top: -7px;
+                    right: -7px;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: #2563eb;
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: 900;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.65);
+                    border: 1.5px solid #ffffff;
+                    z-index: 15;
+                    line-height: 1;
+                }
+                .brat-top-badge.is-visible {
+                    display: inline-flex;
+                }
+                .brat-mode-dropdown.is-open .brat-top-badge {
+                    display: none !important;
+                }
+
+                .brat-mode-menu {
+                    position: absolute;
+                    top: calc(100% + 2px);
+                    left: 0;
+                    width: 100%;
+                    background: #121212;
+                    border: 1px solid #3f3f46;
+                    border-radius: 4px;
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+                    display: none;
+                    flex-direction: column;
+                    z-index: 30;
+                    overflow: visible;
+                }
+                .brat-mode-dropdown.is-open .brat-mode-menu {
+                    display: flex;
+                }
+                .brat-mode-option {
+                    padding: 5px 8px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: #ffffff;
+                    background: #121212;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 6px;
+                    position: relative;
+                }
+                .brat-mode-option:hover,
+                .brat-mode-option.is-selected {
+                    background: #93c5fd;
+                    color: #000000;
+                }
+                .brat-option-badge {
+                    width: 17px;
+                    height: 17px;
+                    min-width: 17px;
+                    border-radius: 50%;
+                    background: #2563eb;
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: 900;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    border: 1.5px solid #ffffff;
+                    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+                    line-height: 1;
+                    cursor: pointer;
+                }
+                .brat-option-badge.is-visible {
+                    display: inline-flex;
+                }
+
+                .brat-fallback-tooltip {
+                    position: absolute;
+                    top: calc(100% + 8px);
+                    right: 0;
+                    width: 250px;
+                    background: #111827;
+                    color: #f9fafb;
+                    border: 1.5px solid #3b82f6;
+                    border-radius: 8px;
+                    padding: 9px 11px;
+                    font-size: 11.5px;
+                    font-weight: 600;
+                    line-height: 1.4;
+                    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.55);
+                    display: none;
+                    z-index: 45;
+                    pointer-events: none;
+                    text-align: left;
+                }
+                .brat-mode-dropdown.is-open .brat-fallback-tooltip {
+                    top: calc(100% + 86px);
+                }
+                .brat-fallback-tooltip.is-visible {
+                    display: block;
+                }
+
                 .brat-presets {
                     display: flex;
                     gap: 8px;
@@ -1514,15 +2054,70 @@
             const rowMode = document.createElement("div");
             rowMode.className = "brat-row";
             rowMode.innerHTML = `<span>Display Mode</span>`;
-            this.selectDisplayMode = document.createElement("select");
-            this.selectDisplayMode.className = "brat-select";
-            this.selectDisplayMode.innerHTML = `
-                <option value="word_zoom">Word by Word (Auto-Zoom)</option>
-                <option value="word_lock">Word by Word (Locked Box)</option>
-                <option value="full_line">Full Sentence (Instant Square)</option>
-            `;
-            this.selectDisplayMode.value = displayMode;
-            rowMode.appendChild(this.selectDisplayMode);
+
+            this.modeDropdown = document.createElement("div");
+            this.modeDropdown.className = "brat-mode-dropdown";
+
+            this.modeTrigger = document.createElement("button");
+            this.modeTrigger.type = "button";
+            this.modeTrigger.className = "brat-mode-trigger";
+
+            this.modeTriggerLabel = document.createElement("span");
+            this.modeTriggerLabel.style.overflow = "hidden";
+            this.modeTriggerLabel.style.textOverflow = "ellipsis";
+            this.modeTriggerLabel.textContent = MODE_LABELS[displayMode] || MODE_LABELS.word_zoom;
+
+            const arrowSpan = document.createElement("span");
+            arrowSpan.className = "brat-mode-arrow";
+            arrowSpan.textContent = "⌄";
+
+            this.modeTrigger.append(this.modeTriggerLabel, arrowSpan);
+
+            this.topFallbackBadge = document.createElement("span");
+            this.topFallbackBadge.className = "brat-top-badge";
+            this.topFallbackBadge.textContent = "!";
+
+            this.modeMenu = document.createElement("div");
+            this.modeMenu.className = "brat-mode-menu";
+
+            this.modeOptionNodes = {};
+            ["word_zoom", "word_lock", "full_line"].forEach((modeKey) => {
+                const opt = document.createElement("div");
+                opt.className = "brat-mode-option";
+                opt.dataset.value = modeKey;
+
+                const label = document.createElement("span");
+                label.textContent = MODE_LABELS[modeKey];
+                opt.appendChild(label);
+
+                if (modeKey === "full_line") {
+                    this.optionFallbackBadge = document.createElement("span");
+                    this.optionFallbackBadge.className = "brat-option-badge";
+                    this.optionFallbackBadge.textContent = "!";
+                    opt.appendChild(this.optionFallbackBadge);
+                }
+
+                opt.onclick = (e) => {
+                    e.stopPropagation();
+                    this.selectModeOption(modeKey);
+                };
+
+                this.modeOptionNodes[modeKey] = opt;
+                this.modeMenu.appendChild(opt);
+            });
+
+            this.fallbackTooltip = document.createElement("div");
+            this.fallbackTooltip.className = "brat-fallback-tooltip";
+            this.fallbackTooltip.textContent =
+                "This song has no word-by-word sync data. Auto-switched to Full Sentence mode. You can still switch modes manually, and it will automatically return to Word by Word on supported songs.";
+
+            this.modeDropdown.append(
+                this.modeTrigger,
+                this.topFallbackBadge,
+                this.modeMenu,
+                this.fallbackTooltip
+            );
+            rowMode.appendChild(this.modeDropdown);
 
             const rowTrans = document.createElement("div");
             rowTrans.className = "brat-row";
@@ -1637,12 +2232,30 @@
 
             this.bindEvents();
             this.syncColors(bgColor, textColor);
+            this.syncModeUI();
+        }
+
+        selectModeOption(chosenMode) {
+            this.closeModeDropdown();
+            this.store.setState({
+                preferredDisplayMode: chosenMode,
+                displayMode: chosenMode
+            });
+        }
+
+        closeModeDropdown() {
+            this.isModeDropdownOpen = false;
+            this.modeDropdown.classList.remove("is-open");
+            this.fallbackTooltip.classList.remove("is-visible");
         }
 
         bindEvents() {
             this.btnGear.onclick = () => {
                 const open = this.panel.classList.toggle("is-open");
                 this.hud.classList.toggle("is-pinned", open);
+                if (!open) {
+                    this.closeModeDropdown();
+                }
             };
             this.btnFull.onclick = () => {
                 if (!document.fullscreenElement) {
@@ -1655,12 +2268,49 @@
                 } else {
                     this.panel.classList.remove("is-open");
                     this.hud.classList.remove("is-pinned");
+                    this.closeModeDropdown();
                     this.store.setState({ isOpen: false });
                 }
             };
-            this.selectDisplayMode.onchange = (e) => {
-                this.store.setState({ displayMode: e.target.value });
+
+            this.modeTrigger.onclick = (e) => {
+                e.stopPropagation();
+                this.isModeDropdownOpen = !this.isModeDropdownOpen;
+                this.modeDropdown.classList.toggle("is-open", this.isModeDropdownOpen);
+                this.fallbackTooltip.classList.remove("is-visible");
             };
+
+            const showTooltip = () => {
+                if (this.store.state.hasNoWordSyncWarning) {
+                    this.fallbackTooltip.classList.add("is-visible");
+                }
+            };
+            const hideTooltip = () => {
+                this.fallbackTooltip.classList.remove("is-visible");
+            };
+
+            this.topFallbackBadge.addEventListener("mouseenter", showTooltip);
+            this.topFallbackBadge.addEventListener("mouseleave", hideTooltip);
+            this.topFallbackBadge.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.fallbackTooltip.classList.toggle("is-visible");
+            });
+
+            if (this.optionFallbackBadge) {
+                this.optionFallbackBadge.addEventListener("mouseenter", showTooltip);
+                this.optionFallbackBadge.addEventListener("mouseleave", hideTooltip);
+                this.optionFallbackBadge.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    this.fallbackTooltip.classList.toggle("is-visible");
+                });
+            }
+
+            this.overlay.addEventListener("click", () => {
+                if (this.isModeDropdownOpen) {
+                    this.closeModeDropdown();
+                }
+            });
+
             this.selectTransition.onchange = (e) => {
                 this.store.setState({ transitionStyle: e.target.value });
             };
@@ -1670,6 +2320,21 @@
             };
             this.inputBg.oninput = (e) => this.store.setState({ bgColor: e.target.value });
             this.inputFg.oninput = (e) => this.store.setState({ textColor: e.target.value });
+        }
+
+        syncModeUI() {
+            const { displayMode, hasNoWordSyncWarning } = this.store.state;
+            this.modeTriggerLabel.textContent = MODE_LABELS[displayMode] || MODE_LABELS.word_zoom;
+            this.modeTrigger.classList.toggle("has-warning", hasNoWordSyncWarning);
+            this.topFallbackBadge.classList.toggle("is-visible", hasNoWordSyncWarning);
+
+            if (this.optionFallbackBadge) {
+                this.optionFallbackBadge.classList.toggle("is-visible", hasNoWordSyncWarning);
+            }
+
+            Object.keys(this.modeOptionNodes).forEach((key) => {
+                this.modeOptionNodes[key].classList.toggle("is-selected", key === displayMode);
+            });
         }
 
         syncColors(bg, fg) {
@@ -1696,7 +2361,12 @@
         }
 
         applyProportionalSquareGeometry(wordCount, justifyLastLine = false) {
-            if (wordCount <= 1) {
+            const effectiveWordCount = Math.max(
+                wordCount,
+                (this.box.textContent || "").trim().split(/\s+/).filter(Boolean).length
+            );
+
+            if (effectiveWordCount <= 1) {
                 this.box.style.textAlign = "left";
                 this.box.style.textAlignLast = "left";
             } else {
@@ -1706,19 +2376,22 @@
 
             const testFont = 100;
             this.box.style.fontSize = `${testFont}px`;
-            this.box.style.width = "10px";
-            const minWordWidth = this.box.scrollWidth;
 
+            this.box.style.whiteSpace = "nowrap";
             this.box.style.width = "max-content";
             const singleLineWidth = this.box.scrollWidth;
             const singleLineHeight = this.box.offsetHeight || testFont;
 
+            this.box.style.whiteSpace = "normal";
+            this.box.style.width = "10px";
+            const minWordWidth = this.box.scrollWidth;
+
             let idealWidth = singleLineWidth;
 
-            if (wordCount >= 2) {
+            if (effectiveWordCount >= 2) {
                 const areaSide = Math.sqrt(singleLineWidth * singleLineHeight * 1.18);
                 const maxAllowedForFewWords =
-                    wordCount === 2 ? singleLineWidth * 0.72 : singleLineWidth * 0.85;
+                    effectiveWordCount === 2 ? singleLineWidth * 0.72 : singleLineWidth * 0.85;
 
                 let low = minWordWidth;
                 let high = Math.max(minWordWidth, Math.min(singleLineWidth, maxAllowedForFewWords));
@@ -1748,7 +2421,7 @@
             );
 
             const dominantSide = Math.max(visualBoxWidth, measuredHeight, 1);
-            const maxFontCap = wordCount <= 2 ? 112 : 96;
+            const maxFontCap = effectiveWordCount <= 2 ? 112 : 96;
             const finalFont = Math.min(
                 maxFontCap,
                 Math.max(30, Math.floor(testFont * (maxCanvasBox / dominantSide)))
@@ -1985,13 +2658,36 @@
         if (res.status === "aborted") return;
 
         if (res.status === "ready") {
-            store.setState({ status: "ready", lines: res.lines });
+            const hasWordSync = Boolean(res.isWordSynced);
+            const pref = store.state.preferredDisplayMode;
+            const shouldAutoFallback =
+                !hasWordSync && (pref === "word_zoom" || pref === "word_lock");
+            const activeMode = shouldAutoFallback ? "full_line" : pref;
+
+            store.setState({
+                status: "ready",
+                lines: res.lines,
+                isCurrentSongWordSynced: hasWordSync,
+                displayMode: activeMode,
+                hasNoWordSyncWarning: !hasWordSync
+            });
+            renderer.syncModeUI();
             syncEngine.tick(performance.now());
         } else if (res.status === "no_track") {
-            store.setState({ status: "no_track", lines: [] });
+            store.setState({
+                status: "no_track",
+                lines: [],
+                hasNoWordSyncWarning: false
+            });
+            renderer.syncModeUI();
             renderer.renderStatus("play a track first");
         } else {
-            store.setState({ status: "empty", lines: [] });
+            store.setState({
+                status: "empty",
+                lines: [],
+                hasNoWordSyncWarning: false
+            });
+            renderer.syncModeUI();
             renderer.renderStatus("lyrics unavailable");
         }
     }
@@ -2113,6 +2809,7 @@
     store.subscribe((state, partial) => {
         renderer.overlay.classList.toggle("is-open", state.isOpen);
         renderer.syncColors(state.bgColor, state.textColor);
+        renderer.syncModeUI();
 
         const btn = document.getElementById("brat-playbar-btn");
         if (btn) btn.classList.toggle("is-active", state.isOpen);
