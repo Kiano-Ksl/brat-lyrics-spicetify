@@ -1,14 +1,55 @@
 (function BratLyricsExtension() {
     const CURRENT_VERSION = "2.1.0";
     const UPDATE_CHECK_URL = "https://raw.githubusercontent.com/Kiano-Ksl/brat-lyrics-spicetify/main/version.json";
+    const REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/Kiano-Ksl/brat-lyrics-spicetify/main/brat-lyric.js";
     const GITHUB_REPO_URL = "https://github.com/Kiano-Ksl/brat-lyrics-spicetify";
     const SPICY_API_URL = "https://api.spicylyrics.org/query";
     const SPICY_CLIENT_VERSION = "5.18.0";
+    const HOT_CACHE_CODE_KEY = "brat_lyrics_hot_code_v1";
+    const HOT_CACHE_VER_KEY = "brat_lyrics_hot_version_v1";
+    const HOT_NOTIFIED_VER_KEY = "brat_lyrics_notified_version_v1";
 
     if (!window.Spicetify || !Spicetify.Player || !document.body) {
         setTimeout(BratLyricsExtension, 250);
         return;
     }
+
+    function isNewerVersion(remoteVer, currentVer) {
+        const cleanRemote = String(remoteVer || "").replace(/^v/i, "").trim();
+        const cleanCurrent = String(currentVer || "").replace(/^v/i, "").trim();
+        if (!cleanRemote || cleanRemote === cleanCurrent) return false;
+
+        const rParts = cleanRemote.split(".").map((n) => parseInt(n, 10) || 0);
+        const cParts = cleanCurrent.split(".").map((n) => parseInt(n, 10) || 0);
+        const maxLen = Math.max(rParts.length, cParts.length);
+
+        for (let i = 0; i < maxLen; i++) {
+            const r = rParts[i] || 0;
+            const c = cParts[i] || 0;
+            if (r > c) return true;
+            if (r < c) return false;
+        }
+        return false;
+    }
+
+    if (!window.__BRAT_RUNNING_FROM_HOT_CACHE__) {
+        try {
+            const cachedVer = window.localStorage.getItem(HOT_CACHE_VER_KEY);
+            const cachedCode = window.localStorage.getItem(HOT_CACHE_CODE_KEY);
+            if (
+                cachedVer &&
+                cachedCode &&
+                isNewerVersion(cachedVer, CURRENT_VERSION) &&
+                cachedCode.includes("BratLyricsExtension")
+            ) {
+                window.__BRAT_RUNNING_FROM_HOT_CACHE__ = cachedVer;
+                new Function(cachedCode)();
+                return;
+            }
+        } catch (_) {}
+    }
+
+    const ACTIVE_VERSION = window.__BRAT_RUNNING_FROM_HOT_CACHE__ || CURRENT_VERSION;
 
     if (typeof window.__BRAT_LYRICS_CLEANUP__ === "function") {
         try {
@@ -2532,22 +2573,51 @@
         }
     }
 
-    function isNewerVersion(remoteVer, currentVer) {
-        const cleanRemote = String(remoteVer || "").replace(/^v/i, "").trim();
-        const cleanCurrent = String(currentVer || "").replace(/^v/i, "").trim();
-        if (!cleanRemote || cleanRemote === cleanCurrent) return false;
+    function showUpdatePopup(latestVersion, prevVersion, releaseNotes, repoUrl) {
+        if (!Spicetify.PopupModal) return;
 
-        const rParts = cleanRemote.split(".").map((n) => parseInt(n, 10) || 0);
-        const cParts = cleanCurrent.split(".").map((n) => parseInt(n, 10) || 0);
-        const maxLen = Math.max(rParts.length, cParts.length);
+        const modalContainer = document.createElement("div");
+        modalContainer.style.cssText = `
+            font-family: Arial, Helvetica, sans-serif;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding: 6px 2px;
+            color: var(--spice-text, #ffffff);
+        `;
 
-        for (let i = 0; i < maxLen; i++) {
-            const r = rParts[i] || 0;
-            const c = cParts[i] || 0;
-            if (r > c) return true;
-            if (r < c) return false;
+        modalContainer.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 12px; background: #8ace00; color: #000000; padding: 12px 16px; border-radius: 8px; font-weight: 900;">
+                <span style="font-size: 24px; filter: blur(0.6px);">brat</span>
+                <div>
+                    <div style="font-size: 15px;">Auto-Updated to v${latestVersion}</div>
+                    <div style="font-size: 12px; font-weight: bold; opacity: 0.8;">Previous version: v${prevVersion}</div>
+                </div>
+            </div>
+            <div style="font-size: 13.5px; line-height: 1.5; opacity: 0.92;">
+                <strong>What's new:</strong><br/>
+                ${releaseNotes}
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
+                <button id="brat-update-later-btn" style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: inherit; font-weight: bold; cursor: pointer;">
+                    Close
+                </button>
+                <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" style="padding: 8px 18px; border-radius: 999px; background: #8ace00; color: #000000; font-weight: 900; text-decoration: none; display: inline-flex; align-items: center;">
+                    Open GitHub
+                </a>
+            </div>
+        `;
+
+        Spicetify.PopupModal.display({
+            title: "Brat Lyrics Auto-Update",
+            content: modalContainer,
+            isLarge: false
+        });
+
+        const closeBtn = modalContainer.querySelector("#brat-update-later-btn");
+        if (closeBtn) {
+            closeBtn.onclick = () => Spicetify.PopupModal.hide();
         }
-        return false;
     }
 
     async function checkUpdate() {
@@ -2562,61 +2632,50 @@
             if (!response.ok) return;
 
             const data = await response.json();
-            const latestVersion = data?.version || data?.tag_name;
+            const latestVersion = String(data?.version || data?.tag_name || "").replace(/^v/i, "").trim();
             const releaseNotes =
                 data?.changelog ||
                 data?.notes ||
                 "Performance improvements and visual updates for Brat Lyrics.";
             const repoUrl = data?.url || GITHUB_REPO_URL;
 
-            if (latestVersion && isNewerVersion(latestVersion, CURRENT_VERSION)) {
-                if (!Spicetify.PopupModal) return;
+            if (!latestVersion || !isNewerVersion(latestVersion, ACTIVE_VERSION)) {
+                return;
+            }
 
-                const modalContainer = document.createElement("div");
-                modalContainer.style.cssText = `
-                    font-family: Arial, Helvetica, sans-serif;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 14px;
-                    padding: 6px 2px;
-                    color: var(--spice-text, #ffffff);
-                `;
+            const scriptUrl = data?.script_url || REMOTE_SCRIPT_URL;
+            const scriptRes = await fetch(`${scriptUrl}?t=${Date.now()}`, {
+                cache: "no-store"
+            });
 
-                modalContainer.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 12px; background: #8ace00; color: #000000; padding: 12px 16px; border-radius: 8px; font-weight: 900;">
-                        <span style="font-size: 24px; filter: blur(0.6px);">brat</span>
-                        <div>
-                            <div style="font-size: 15px;">Update Available: v${latestVersion}</div>
-                            <div style="font-size: 12px; font-weight: bold; opacity: 0.8;">Current version: v${CURRENT_VERSION}</div>
-                        </div>
-                    </div>
-                    <div style="font-size: 13.5px; line-height: 1.5; opacity: 0.92;">
-                        <strong>What's new:</strong><br/>
-                        ${releaseNotes}
-                    </div>
-                    <div style="background: rgba(255,255,255,0.07); padding: 10px 14px; border-radius: 6px; font-size: 12.5px; line-height: 1.5;">
-                        Run <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; color: #8ace00;">spicetify upgrade</code> or update directly via the <strong>Marketplace</strong> tab or GitHub repository.
-                    </div>
-                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
-                        <button id="brat-update-later-btn" style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: inherit; font-weight: bold; cursor: pointer;">
-                            Later
-                        </button>
-                        <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" style="padding: 8px 18px; border-radius: 999px; background: #8ace00; color: #000000; font-weight: 900; text-decoration: none; display: inline-flex; align-items: center;">
-                            Open GitHub
-                        </a>
-                    </div>
-                `;
+            if (scriptRes.ok) {
+                const latestCode = await scriptRes.text();
+                if (latestCode && latestCode.includes("BratLyricsExtension")) {
+                    window.localStorage.setItem(HOT_CACHE_CODE_KEY, latestCode);
+                    window.localStorage.setItem(HOT_CACHE_VER_KEY, latestVersion);
+                    window.__BRAT_RUNNING_FROM_HOT_CACHE__ = latestVersion;
 
-                Spicetify.PopupModal.display({
-                    title: "Brat Lyrics Auto-Update",
-                    content: modalContainer,
-                    isLarge: false
-                });
+                    if (typeof window.__BRAT_LYRICS_CLEANUP__ === "function") {
+                        try {
+                            window.__BRAT_LYRICS_CLEANUP__();
+                        } catch (_) {}
+                    }
 
-                const closeBtn = modalContainer.querySelector("#brat-update-later-btn");
-                if (closeBtn) {
-                    closeBtn.onclick = () => Spicetify.PopupModal.hide();
+                    new Function(latestCode)();
+
+                    if (window.localStorage.getItem(HOT_NOTIFIED_VER_KEY) !== latestVersion) {
+                        window.localStorage.setItem(HOT_NOTIFIED_VER_KEY, latestVersion);
+                        setTimeout(() => {
+                            showUpdatePopup(latestVersion, ACTIVE_VERSION, releaseNotes, repoUrl);
+                        }, 600);
+                    }
+                    return;
                 }
+            }
+
+            if (window.localStorage.getItem(HOT_NOTIFIED_VER_KEY) !== latestVersion) {
+                window.localStorage.setItem(HOT_NOTIFIED_VER_KEY, latestVersion);
+                showUpdatePopup(latestVersion, ACTIVE_VERSION, releaseNotes, repoUrl);
             }
         } catch (_) {}
     }
