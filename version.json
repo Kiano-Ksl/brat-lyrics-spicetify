@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
-  "changelog": "Major v2.0 Update: Word-by-word syllable synchronization, Random Auto Color Flip (1-3 lines), Smooth/Slide transitions, Sync Offset calibration, and new Playbar button.",
+  "version": "2.1.0",
+  "changelog": "v2.1.0 Update: Smart Auto-Fallback to Full Sentence mode with (!) indicator badge when word-sync data is unavailable, improved LRCLIB eLRC word-sync support, and square box layout fixes.",
   "url": "https://github.com/Kiano-Ksl/brat-lyrics-spicetify"
 }
