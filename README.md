@@ -2,22 +2,23 @@
   <img src="https://spicetify.app/images/spicetify.png" width="65" alt="Spicetify Logo">
 </p>
 
-# 🟩 Brat Lyrics for Spicetify (v2.0)
+# 🟩 Brat Lyrics for Spicetify (v2.1)
 
-![Version](https://img.shields.io/badge/version-v2.0.0-8ACE00?style=for-the-badge) ![Status](https://img.shields.io/badge/status-Active-success?style=for-the-badge) ![Platform](https://img.shields.io/badge/Spicetify-Extension-1ED760?style=for-the-badge&logo=spotify&logoColor=white) ![License](https://img.shields.io/badge/License-MIT-black?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-v2.1.0-8ACE00?style=for-the-badge) ![Status](https://img.shields.io/badge/status-Active-success?style=for-the-badge) ![Platform](https://img.shields.io/badge/Spicetify-Extension-1ED760?style=for-the-badge&logo=spotify&logoColor=white) ![License](https://img.shields.io/badge/License-MIT-black?style=for-the-badge)
 
 Bring the iconic, chaotic, and viral **"Brat" lyric edit** aesthetic straight to your Spotify Desktop.
 
-Instead of regular boring lyrics, **Brat Lyrics v2.0** transforms your currently playing song into a dynamic, word-by-word, auto-squaring lowercase text block with real-time beat color flips—just like viral TikTok/Reels Brat edits.
+Instead of regular boring lyrics, **Brat Lyrics** transforms your currently playing song into a dynamic, word-by-word, auto-squaring lowercase text block with real-time beat color flips—just like viral TikTok/Reels Brat edits.
 
 ![Brat Lyrics Main Demo](assets/demo.gif)
 
-## ✨ What's New in v2.0
-- **Word-by-Word / Syllable Tracking:** Lyrics now pop in word-by-word in sync with the vocalist using multi-source TTML & syllable pipelines.
+## ✨ What's New
+- **Word-by-Word / Syllable Tracking:** Lyrics now pop in word-by-word in sync with the vocalist using multi-source TTML, eLRC, & syllable pipelines.
 - **3 Display Modes:**
   - **Word by Word (Auto-Zoom):** Words accumulate one by one while dynamically resizing the square block.
   - **Word by Word (Locked Box):** Locks the square geometry first and reveals words smoothly in place.
   - **Full Sentence (Instant Square):** Classic v1.0 mode—instantly renders the full sentence as an edge-to-edge square block.
+- **Smart Auto-Fallback (`!` Indicator):** Automatically switches from **Word by Word** to **Full Sentence** mode with a blue **`!`** warning badge when a track only has line-synced lyrics, while still allowing manual switching and automatically returning to **Word by Word** on supported songs.
 - **Auto Color Flip (Viral Edit Style):** Automatically inverts the background and text colors (e.g., White/Black ↔ Black/White) randomly every **1–3 lines** or on **every single line**.
 - **Customizable Transition Styles:** Choose between **Rigid (Classic Instant)**, **Smooth Fade**, or **Kinetic Slide Up**.
 - **Real-time Sync Offset Calibration:** Fine-tune lyric timing on the fly (`-50ms` / `+50ms`) to match Bluetooth headphones or external speakers.
@@ -29,7 +30,7 @@ You can deeply customize how the lyrics behave through the new Settings menu. He
 
 | Option | Screenshot | Description |
 | :--- | :---: | :--- |
-| **Display Mode** | <img src="assets/DisplayMode.png" width="250"> | Choose how lyrics appear: **Auto-Zoom** dynamically resizes the box, **Locked Box** keeps the geometry fixed, or **Instant Square** for classic full-sentence rendering. |
+| **Display Mode** | <img src="assets/DisplayMode.png" width="250"> | Choose how lyrics appear: **Auto-Zoom** dynamically resizes the box, **Locked Box** keeps the geometry fixed, or **Instant Square** for classic full-sentence rendering. Includes a smart **`!`** indicator when a song auto-fallbacks to Full Sentence mode. |
 | **Transition Style** | <img src="assets/TransitionStyle.png" width="250"> | Customize the animation of the text. Go for the classic **Rigid** pop, a subtle **Smooth Fade**, or a **Kinetic Slide Up** for a more energetic feel. |
 | **Auto Color Flip** | <img src="assets/ThemePreset.png" width="250"> | Enable the signature "Brat" edit effect. The background and text colors will swap automatically. Choose to flip **Randomly (Every 1-3 Lines)**, **Every Single Line**, or turn it off entirely for manual control. |
 
