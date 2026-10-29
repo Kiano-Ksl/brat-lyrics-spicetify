@@ -2,9 +2,9 @@
   <img src="https://spicetify.app/images/spicetify.png" width="65" alt="Spicetify Logo">
 </p>
 
-# 🟩 Brat Lyrics for Spicetify (v2.1)
+# 🟩 Brat Lyrics for Spicetify (v2.2)
 
-![Version](https://img.shields.io/badge/version-v2.1.0-8ACE00?style=for-the-badge) ![Status](https://img.shields.io/badge/status-Active-success?style=for-the-badge) ![Platform](https://img.shields.io/badge/Spicetify-Extension-1ED760?style=for-the-badge&logo=spotify&logoColor=white) ![License](https://img.shields.io/badge/License-MIT-black?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-v2.2.0-8ACE00?style=for-the-badge) ![Status](https://img.shields.io/badge/status-Active-success?style=for-the-badge) ![Platform](https://img.shields.io/badge/Spicetify-Extension-1ED760?style=for-the-badge&logo=spotify&logoColor=white) ![License](https://img.shields.io/badge/License-MIT-black?style=for-the-badge)
 
 Bring the iconic, chaotic, and viral **"Brat" lyric edit** aesthetic straight to your Spotify Desktop.
 
@@ -12,13 +12,15 @@ Instead of regular boring lyrics, **Brat Lyrics** transforms your currently play
 
 ![Brat Lyrics Main Demo](assets/demo.gif)
 
-## ✨ What's New
-- **Word-by-Word / Syllable Tracking:** Lyrics now pop in word-by-word in sync with the vocalist using multi-source TTML, eLRC, & syllable pipelines.
-- **3 Display Modes:**
+## ✨ What's New in v2.2
+- **Word-by-Word / Syllable Tracking:** Lyrics pop in word-by-word in sync with the vocalist using multi-source TTML, eLRC, & syllable pipelines.
+- **3 Display Modes + Smart Auto-Fallback (`!`):**
   - **Word by Word (Auto-Zoom):** Words accumulate one by one while dynamically resizing the square block.
   - **Word by Word (Locked Box):** Locks the square geometry first and reveals words smoothly in place.
-  - **Full Sentence (Instant Square):** Classic v1.0 mode—instantly renders the full sentence as an edge-to-edge square block.
-- **Smart Auto-Fallback (`!` Indicator):** Automatically switches from **Word by Word** to **Full Sentence** mode with a blue **`!`** warning badge when a track only has line-synced lyrics, while still allowing manual switching and automatically returning to **Word by Word** on supported songs.
+  - **Full Sentence (Instant Square):** Classic v1.0 mode—instantly renders the full sentence as an edge-to-edge square block. Automatically activates with a blue **`!`** badge when a track only has line-synced lyrics.
+- **Custom Background (Photo / GIF / WebM):** Upload your own custom background image or animated GIF (up to 30 MB) with automatic full-screen zoom and persistent local storage.
+- **Visual Effect (Vintage Dust Specks):** Optional retro media-player film dust and scratch overlay that dynamically adapts to your text color.
+- **Top HUD Music Controls:** Control playback directly from the top hover bar (`⏮ Previous`, `⚙ Settings`, `⏯ Play/Pause`, `[ ] Fullscreen`, `✕ Close`, `⏭ Next`).
 - **Auto Color Flip (Viral Edit Style):** Automatically inverts the background and text colors (e.g., White/Black ↔ Black/White) randomly every **1–3 lines** or on **every single line**.
 - **Customizable Transition Styles:** Choose between **Rigid (Classic Instant)**, **Smooth Fade**, or **Kinetic Slide Up**.
 - **Real-time Sync Offset Calibration:** Fine-tune lyric timing on the fly (`-50ms` / `+50ms`) to match Bluetooth headphones or external speakers.
@@ -26,13 +28,15 @@ Instead of regular boring lyrics, **Brat Lyrics** transforms your currently play
 
 ## ⚙️ Customization Menus
 
-You can deeply customize how the lyrics behave through the new Settings menu. Here's a breakdown of the key options:
+You can deeply customize how the lyrics behave through the Settings menu. Here's a breakdown of the key options:
 
 | Option | Screenshot | Description |
 | :--- | :---: | :--- |
-| **Display Mode** | <img src="assets/DisplayMode.png" width="250"> | Choose how lyrics appear: **Auto-Zoom** dynamically resizes the box, **Locked Box** keeps the geometry fixed, or **Instant Square** for classic full-sentence rendering. Includes a smart **`!`** indicator when a song auto-fallbacks to Full Sentence mode. |
+| **Display Mode** | <img src="assets/DisplayMode.png" width="250"> | Choose how lyrics appear: **Auto-Zoom** dynamically resizes the box, **Locked Box** keeps the geometry fixed, or **Instant Square** for classic full-sentence rendering (with a smart **`!`** auto-fallback indicator). |
 | **Transition Style** | <img src="assets/TransitionStyle.png" width="250"> | Customize the animation of the text. Go for the classic **Rigid** pop, a subtle **Smooth Fade**, or a **Kinetic Slide Up** for a more energetic feel. |
+| **Visual Effect** | <img src="assets/VisualEffect.png" width="250"> | Toggle between **Off (Clean Brat)** for a sharp minimalist stage or **Vintage Dust Specks** to add retro film dust and subtle scratches. |
 | **Auto Color Flip** | <img src="assets/ThemePreset.png" width="250"> | Enable the signature "Brat" edit effect. The background and text colors will swap automatically. Choose to flip **Randomly (Every 1-3 Lines)**, **Every Single Line**, or turn it off entirely for manual control. |
+| **Custom Background** | <img src="assets/CustomBackground.png" width="250"> | Upload a custom **Photo (JPG, PNG, WebP)**, **Animated GIF (.gif)**, or **WebM** up to **30 MB**. Automatically scales to fit your screen and saves across restarts. |
 
 ![Color Customizer Demo](assets/color.gif)
 
