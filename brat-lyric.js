@@ -1,13 +1,15 @@
 (function BratLyricsExtension() {
-    const CURRENT_VERSION = "2.1.0";
+    const CURRENT_VERSION = "2.2.0";
     const UPDATE_CHECK_URL = "https://raw.githubusercontent.com/Kiano-Ksl/brat-lyrics-spicetify/main/version.json";
     const REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/Kiano-Ksl/brat-lyrics-spicetify/main/brat-lyric.js";
     const GITHUB_REPO_URL = "https://github.com/Kiano-Ksl/brat-lyrics-spicetify";
     const SPICY_API_URL = "https://api.spicylyrics.org/query";
-    const SPICY_CLIENT_VERSION = "5.18.0";
+    const SPICY_CLIENT_VERSION = "6.4.70";
     const HOT_CACHE_CODE_KEY = "brat_lyrics_hot_code_v1";
     const HOT_CACHE_VER_KEY = "brat_lyrics_hot_version_v1";
     const HOT_NOTIFIED_VER_KEY = "brat_lyrics_notified_version_v1";
+    const MAX_MEDIA_SIZE_BYTES = 30 * 1024 * 1024;
+    const WORD_SYNC_INITIAL_WAIT_MS = 6000;
 
     if (!window.Spicetify || !Spicetify.Player || !document.body) {
         setTimeout(BratLyricsExtension, 250);
@@ -55,6 +57,107 @@
         try {
             window.__BRAT_LYRICS_CLEANUP__();
         } catch (_) {}
+    }
+
+    const HUD_ICONS = {
+        prev: `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M5 5h2.8v14H5V5zm4.2 7L19 5v14l-9.8-7z"/></svg>`,
+        next: `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16.2 5H19v14h-2.8V5zM5 19l9.8-7L5 5v14z"/></svg>`,
+        play: `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6.5 4.6c0-1.05 1.15-1.68 2.05-1.12l11.4 7.4c.82.53.82 1.71 0 2.24l-11.4 7.4c-.9.56-2.05-.07-2.05-1.12V4.6z"/></svg>`,
+        pause: `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="5.5" y="4" width="4.5" height="16" rx="0.8"/><rect x="14" y="4" width="4.5" height="16" rx="0.8"/></svg>`,
+        gear: `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>`
+    };
+
+    class BratMediaStorage {
+        constructor() {
+            this.dbName = "brat_lyrics_custom_media_db_v2";
+            this.storeName = "media_store";
+            this.recordKey = "active_background";
+        }
+
+        openDB() {
+            return new Promise((resolve, reject) => {
+                if (!window.indexedDB) {
+                    reject(new Error("IndexedDB unavailable"));
+                    return;
+                }
+                const req = window.indexedDB.open(this.dbName, 1);
+                req.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(this.storeName)) {
+                        db.createObjectStore(this.storeName);
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async saveMedia(arrayBuffer, mimeType, fileName) {
+            const db = await this.openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(this.storeName, "readwrite");
+                const store = tx.objectStore(this.storeName);
+                store.put(
+                    {
+                        buffer: arrayBuffer,
+                        mimeType: mimeType || "image/gif",
+                        fileName: fileName || "custom_media",
+                        updatedAt: Date.now()
+                    },
+                    this.recordKey
+                );
+                tx.oncomplete = () => {
+                    db.close();
+                    resolve(true);
+                };
+                tx.onerror = () => {
+                    db.close();
+                    reject(tx.error);
+                };
+            });
+        }
+
+        async loadMedia() {
+            try {
+                const db = await this.openDB();
+                return await new Promise((resolve) => {
+                    const tx = db.transaction(this.storeName, "readonly");
+                    const store = tx.objectStore(this.storeName);
+                    const req = store.get(this.recordKey);
+                    req.onsuccess = () => {
+                        db.close();
+                        resolve(req.result || null);
+                    };
+                    req.onerror = () => {
+                        db.close();
+                        resolve(null);
+                    };
+                });
+            } catch (_) {
+                return null;
+            }
+        }
+
+        async clearMedia() {
+            try {
+                const db = await this.openDB();
+                return await new Promise((resolve) => {
+                    const tx = db.transaction(this.storeName, "readwrite");
+                    const store = tx.objectStore(this.storeName);
+                    store.delete(this.recordKey);
+                    tx.oncomplete = () => {
+                        db.close();
+                        resolve(true);
+                    };
+                    tx.onerror = () => {
+                        db.close();
+                        resolve(false);
+                    };
+                });
+            } catch (_) {
+                return false;
+            }
+        }
     }
 
     class BratLyricParser {
@@ -105,7 +208,7 @@
         }
 
         static unwrapSpicyPayload(rawPayload, depth = 0) {
-            if (!rawPayload || depth > 7) return null;
+            if (!rawPayload || depth > 8) return null;
 
             let data = rawPayload;
             if (typeof data === "string") {
@@ -123,6 +226,14 @@
 
             if (!data || typeof data !== "object") return null;
 
+            if (Array.isArray(data)) {
+                for (const item of data) {
+                    const found = this.unwrapSpicyPayload(item, depth + 1);
+                    if (found) return found;
+                }
+                return null;
+            }
+
             if (
                 Array.isArray(data.Content) ||
                 Array.isArray(data.content) ||
@@ -132,27 +243,57 @@
                 return data;
             }
 
-            if (Array.isArray(data.jobs)) {
-                for (const job of data.jobs) {
-                    const unwrapped = this.unwrapSpicyPayload(
-                        job?.result?.data ?? job?.result?.response ?? job?.result ?? job?.data,
-                        depth + 1
-                    );
-                    if (unwrapped) return unwrapped;
-                }
-            }
-
             if (Array.isArray(data.queries)) {
                 for (const q of data.queries) {
                     const unwrapped = this.unwrapSpicyPayload(
-                        q?.result?.data ?? q?.result?.response ?? q?.result ?? q?.data,
+                        q?.result?.Body ??
+                            q?.result?.body ??
+                            q?.result?.data ??
+                            q?.result?.response ??
+                            q?.result ??
+                            q?.Body ??
+                            q?.body ??
+                            q?.data ??
+                            q,
                         depth + 1
                     );
                     if (unwrapped) return unwrapped;
                 }
             }
 
-            const nestedKeys = ["result", "data", "content", "value", "lyrics", "payload", "response", "body"];
+            if (Array.isArray(data.jobs)) {
+                for (const job of data.jobs) {
+                    const unwrapped = this.unwrapSpicyPayload(
+                        job?.result?.Body ??
+                            job?.result?.body ??
+                            job?.result?.data ??
+                            job?.result?.response ??
+                            job?.result ??
+                            job?.Body ??
+                            job?.body ??
+                            job?.data ??
+                            job,
+                        depth + 1
+                    );
+                    if (unwrapped) return unwrapped;
+                }
+            }
+
+            const nestedKeys = [
+                "Body",
+                "body",
+                "result",
+                "Result",
+                "data",
+                "Data",
+                "content",
+                "value",
+                "lyrics",
+                "Lyrics",
+                "payload",
+                "response",
+                "Response"
+            ];
             for (const key of nestedKeys) {
                 if (data[key] !== undefined && data[key] !== null) {
                     const unwrapped = this.unwrapSpicyPayload(data[key], depth + 1);
@@ -266,8 +407,12 @@
                 syncType === "word" ||
                 contentList.some((c) => {
                     const l = c?.Lead || c?.lead || c;
-                    const arr = l?.Syllables || l?.syllables || c?.Syllables || c?.syllables;
-                    return Array.isArray(arr) && arr.length > 1;
+                    return (
+                        Array.isArray(l?.Syllables) ||
+                        Array.isArray(l?.syllables) ||
+                        Array.isArray(c?.Syllables) ||
+                        Array.isArray(c?.syllables)
+                    );
                 });
 
             if (hasSyllableStructure) {
@@ -369,23 +514,10 @@
             const rawLyrics = data?.lyrics || data?.data?.lyrics || (Array.isArray(data) ? data : null);
             if (!Array.isArray(rawLyrics) || rawLyrics.length === 0) return null;
 
-            const isLineType = String(data?.type ?? data?.Type ?? "").toLowerCase() === "line";
-            const multiWordLines = rawLyrics.filter((l) => {
-                const txt = this.cleanText(l?.text || "");
-                return txt.split(" ").filter(Boolean).length >= 3;
+            const hasSyllables = rawLyrics.some((l) => {
+                const sylArr = l?.syllabus || l?.syllables || l?.words;
+                return Array.isArray(sylArr) && sylArr.length > 0;
             });
-
-            const hasSyllables =
-                !isLineType &&
-                (multiWordLines.length > 0
-                    ? multiWordLines.some((l) => {
-                          const sylArr = l?.syllabus || l?.syllables || l?.words;
-                          return Array.isArray(sylArr) && sylArr.length >= 3;
-                      })
-                    : rawLyrics.some((l) => {
-                          const sylArr = l?.syllabus || l?.syllables || l?.words;
-                          return Array.isArray(sylArr) && sylArr.length > 1;
-                      }));
 
             if (!hasSyllables && !allowLineFallback) {
                 return null;
@@ -487,7 +619,8 @@
                 if (!cleanedLine) continue;
 
                 if (words.length === 0) {
-                    words = this.fallbackSplitWords(cleanedLine, lineStart, lineEnd);
+                    if (!allowLineFallback) continue;
+                    words.push(...this.fallbackSplitWords(cleanedLine, lineStart, lineEnd));
                 }
 
                 lines.push({
@@ -535,7 +668,7 @@
             }
             if (pList.length === 0) return null;
 
-            let hasMultiSpanLine = false;
+            let foundAnyTimedSpan = false;
             const lines = [];
 
             for (let i = 0; i < pList.length; i++) {
@@ -588,6 +721,7 @@
 
                             const textVal = node.textContent || "";
                             if (b) {
+                                foundAnyTimedSpan = true;
                                 const sStart = this.parseTime(b);
                                 const sEnd = e ? this.parseTime(e) : sStart + 0.2;
 
@@ -624,10 +758,6 @@
                 walkNodes(p);
                 flushWord();
 
-                if (rawTimedSpans.length > 1) {
-                    hasMultiSpanLine = true;
-                }
-
                 if (words.length <= 1 && rawTimedSpans.length > 1) {
                     words = [...rawTimedSpans];
                 }
@@ -641,7 +771,8 @@
                 if (!fullCleaned) continue;
 
                 if (words.length === 0) {
-                    words = this.fallbackSplitWords(fullCleaned, lineStart, lineEnd);
+                    if (!allowLineFallback) continue;
+                    words.push(...this.fallbackSplitWords(fullCleaned, lineStart, lineEnd));
                 }
 
                 lines.push({
@@ -652,18 +783,18 @@
                 });
             }
 
-            if (!hasMultiSpanLine && !allowLineFallback) return null;
-            return lines.length > 0 ? { lines, isWordSynced: hasMultiSpanLine } : null;
+            if (!foundAnyTimedSpan && !allowLineFallback) return null;
+            return lines.length > 0 ? { lines, isWordSynced: foundAnyTimedSpan } : null;
         }
 
-        static fromPaxsenixJson(rawInput, allowLineFallback = false) {
+        static fromPaxsenixJson(rawInput) {
             if (!rawInput) return null;
 
             let data = rawInput;
             if (typeof data === "string") {
                 const trimmed = data.trim();
                 if (trimmed.startsWith("<")) {
-                    return this.fromTTML(trimmed, allowLineFallback);
+                    return this.fromTTML(trimmed, false);
                 }
                 try {
                     data = JSON.parse(trimmed);
@@ -673,13 +804,13 @@
             }
 
             if (typeof data?.ttml === "string" && (data.ttml.includes("<p") || data.ttml.includes("<tt:p"))) {
-                return this.fromTTML(data.ttml, allowLineFallback);
+                return this.fromTTML(data.ttml, false);
             }
             if (typeof data?.lyrics === "string" && (data.lyrics.includes("<p") || data.lyrics.includes("<tt:p"))) {
-                return this.fromTTML(data.lyrics, allowLineFallback);
+                return this.fromTTML(data.lyrics, false);
             }
 
-            const spicyAttempt = this.fromSpicyLyricsJson(data, allowLineFallback);
+            const spicyAttempt = this.fromSpicyLyricsJson(data, false);
             if (spicyAttempt?.isWordSynced) return spicyAttempt;
 
             const rawArray = Array.isArray(data)
@@ -695,7 +826,7 @@
             if (!rawArray || rawArray.length === 0) return null;
 
             if (rawArray.some((item) => Array.isArray(item.syllabus) || Array.isArray(item.syllables))) {
-                return this.fromLyricsPlusJson({ lyrics: rawArray, type: data.type || "Word" }, allowLineFallback);
+                return this.fromLyricsPlusJson({ lyrics: rawArray, type: "Word" }, false);
             }
 
             const lines = [];
@@ -703,11 +834,8 @@
 
             for (let i = 0; i < rawArray.length; i++) {
                 const item = rawArray[i];
-                const lineStart = Number(item.timestamp ?? item.startTime ?? item.time ?? 0) / 1000;
-                const lineEnd = Number(item.endtime ?? item.endTime ?? lineStart * 1000 + 3000) / 1000;
-
                 if (Array.isArray(item.text) && item.text.length > 0) {
-                    if (item.text.length > 1) hasWordTimings = true;
+                    hasWordTimings = true;
                     const words = this.extractSyllableWords(item.text, 1000);
                     if (words.length > 0) {
                         lines.push({
@@ -794,9 +922,7 @@
 
         static fromSpotify(lyricsData, allowLineFallback = false) {
             const rawLines = lyricsData?.lines || [];
-            const isSyllable =
-                lyricsData?.syncType === "SYLLABLE_SYNCED" &&
-                rawLines.some((l) => Array.isArray(l.syllables) && l.syllables.length > 1);
+            const isSyllable = lyricsData?.syncType === "SYLLABLE_SYNCED";
             if (!isSyllable && !allowLineFallback) return null;
 
             const lines = [];
@@ -865,22 +991,6 @@
             return lines.length > 0 ? { lines, isWordSynced: isSyllable } : null;
         }
 
-        static parseAnyPayload(rawInput, allowLineFallback = false) {
-            if (!rawInput) return null;
-            return (
-                this.fromSpicyLyricsJson(rawInput, false) ||
-                this.fromLyricsPlusJson(rawInput, false) ||
-                this.fromTTML(rawInput, false) ||
-                this.fromPaxsenixJson(rawInput, false) ||
-                (allowLineFallback
-                    ? this.fromSpicyLyricsJson(rawInput, true) ||
-                      this.fromLyricsPlusJson(rawInput, true) ||
-                      this.fromTTML(rawInput, true) ||
-                      this.fromPaxsenixJson(rawInput, true)
-                    : null)
-            );
-        }
-
         static fallbackSplitWords(cleanLine, start, end) {
             const arr = cleanLine.split(" ").filter(Boolean);
             if (arr.length === 0) return [];
@@ -913,27 +1023,8 @@
     const interceptedSpicyCache = new Map();
     let detectedSpicyVersion = SPICY_CLIENT_VERSION;
 
-    function recordInterceptedPayload(rawPayload) {
-        try {
-            const currentUri = Spicetify.Player?.data?.item?.uri;
-            if (!currentUri || !rawPayload) return;
-            const parsed = BratLyricParser.parseAnyPayload(rawPayload, true);
-            if (parsed && parsed.lines?.length > 0) {
-                const existing = interceptedSpicyCache.get(currentUri);
-                if (!existing || (!existing.isWordSynced && parsed.isWordSynced)) {
-                    interceptedSpicyCache.set(currentUri, {
-                        status: "ready",
-                        lines: parsed.lines,
-                        isWordSynced: Boolean(parsed.isWordSynced)
-                    });
-                }
-            }
-        } catch (_) {}
-    }
-
-    if (!window.__BRAT_NETWORK_HOOKED__) {
-        window.__BRAT_NETWORK_HOOKED__ = true;
-
+    if (!window.__BRAT_FETCH_HOOKED__) {
+        window.__BRAT_FETCH_HOOKED__ = true;
         const origFetch = window.fetch;
         window.fetch = async function (...args) {
             try {
@@ -947,26 +1038,24 @@
             const response = await origFetch.apply(this, args);
             try {
                 const url = String(args[0]?.url || args[0] || "");
-                if (/spicylyrics|lyricsplus|paxsenix|binimum|color-lyrics|ttml/i.test(url)) {
-                    response
-                        .clone()
-                        .text()
-                        .then((txt) => recordInterceptedPayload(txt))
-                        .catch(() => {});
+                if (url.includes("spicylyrics.org") || url.includes("color-lyrics") || url.includes("lyrics")) {
+                    const clone = response.clone();
+                    clone.json().then((json) => {
+                        const currentUri = Spicetify.Player?.data?.item?.uri;
+                        if (currentUri) {
+                            const parsed = BratLyricParser.fromSpicyLyricsJson(json, false);
+                            if (parsed?.isWordSynced) {
+                                interceptedSpicyCache.set(currentUri, {
+                                    status: "ready",
+                                    lines: parsed.lines,
+                                    isWordSynced: true
+                                });
+                            }
+                        }
+                    }).catch(() => {});
                 }
             } catch (_) {}
             return response;
-        };
-
-        const origResJson = Response.prototype.json;
-        Response.prototype.json = async function () {
-            const data = await origResJson.apply(this, arguments);
-            try {
-                if (this.url && /spicylyrics|lyricsplus|paxsenix|binimum|color-lyrics/i.test(this.url)) {
-                    recordInterceptedPayload(data);
-                }
-            } catch (_) {}
-            return data;
         };
     }
 
@@ -984,13 +1073,6 @@
             ];
         }
 
-        withTimeout(promise, ms = 4500) {
-            return Promise.race([
-                promise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))
-            ]);
-        }
-
         async extractRichTrackMeta() {
             const data = Spicetify.Player.data;
             const item = data?.item || data?.track;
@@ -1006,17 +1088,21 @@
 
             const artist = item.artists?.[0]?.name || item.metadata?.artist_name || "";
             const album = item.album?.name || item.metadata?.album_title || "";
-            const durationSec = Math.round(
-                (item.duration?.milliseconds || Spicetify.Player.getDuration() || 0) / 1000
-            );
+            let rawDur = item.duration?.milliseconds || 0;
+            if (!rawDur) {
+                try {
+                    rawDur = Spicetify.Player.getDuration() || 0;
+                } catch (_) {}
+            }
+            const durationSec = Math.round(rawDur / 1000);
 
             let isrc = item.external_ids?.isrc || item.metadata?.isrc || "";
             if (!isrc && trackId && Spicetify.CosmosAsync) {
                 try {
-                    const trackInfo = await this.withTimeout(
+                    const trackInfo = await Promise.race([
                         Spicetify.CosmosAsync.get(`https://api.spotify.com/v1/tracks/${trackId}`),
-                        1400
-                    );
+                        new Promise((_, rej) => setTimeout(rej, 1500))
+                    ]);
                     if (trackInfo?.external_ids?.isrc) {
                         isrc = trackInfo.external_ids.isrc;
                     }
@@ -1026,7 +1112,7 @@
             return { uri, trackId, title: cleanTitle || rawTitle, rawTitle, artist, album, durationSec, isrc };
         }
 
-        async fetchTimeout(url, options = {}, signal, ms = 5500) {
+        async fetchTimeout(url, options = {}, signal, ms = 6500) {
             const ctrl = new AbortController();
             const id = setTimeout(() => ctrl.abort(), ms);
             const onAbort = () => ctrl.abort();
@@ -1040,137 +1126,70 @@
             }
         }
 
-        scanLocalWebStorage(trackId) {
-            if (!trackId) return null;
-            let fallbackLine = null;
-            for (const storage of [window.localStorage, window.sessionStorage]) {
-                try {
-                    for (let i = 0; i < storage.length; i++) {
-                        const key = storage.key(i) || "";
-                        const val = storage.getItem(key) || "";
-                        if (key.includes(trackId) || val.includes(trackId)) {
-                            const parsed = BratLyricParser.parseAnyPayload(val, true);
-                            if (parsed?.isWordSynced) return parsed;
-                            if (parsed?.lines?.length > 0 && !fallbackLine) fallbackLine = parsed;
-                        }
-                    }
-                } catch (_) {}
-            }
-            return fallbackLine;
-        }
-
         async readInstalledSpicyLyricsCache(trackId) {
-            if (!trackId) return null;
-
-            const fromWebStorage = this.scanLocalWebStorage(trackId);
-            if (fromWebStorage?.isWordSynced) return fromWebStorage;
-
-            let bestFallback = fromWebStorage;
-
-            if (window.caches) {
-                try {
-                    const cacheNames = await this.withTimeout(window.caches.keys(), 1000);
-                    for (const cName of cacheNames) {
-                        const cache = await window.caches.open(cName);
-                        const requests = await cache.keys();
-                        for (const req of requests) {
-                            if (req.url.includes(trackId) || /spicylyrics|lyricsplus/i.test(req.url)) {
-                                const match = await cache.match(req);
-                                if (match) {
-                                    const txt = await match.clone().text();
-                                    if (txt.includes(trackId) || req.url.includes(trackId)) {
-                                        const p = BratLyricParser.parseAnyPayload(txt, true);
-                                        if (p?.isWordSynced) return p;
-                                        if (p?.lines?.length > 0 && !bestFallback) bestFallback = p;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (_) {}
-            }
-
-            if (!window.indexedDB) return bestFallback;
-
+            if (!trackId || !window.indexedDB) return null;
             try {
-                const dbs =
-                    (await this.withTimeout(window.indexedDB.databases?.() || Promise.resolve([]), 1200)) ||
-                    [];
+                const dbs = (await window.indexedDB.databases?.()) || [];
                 for (const dbInfo of dbs) {
                     const dbName = dbInfo.name || "";
-                    if (!dbName) continue;
+                    if (!/spicy|lyric/i.test(dbName) || dbName.includes("brat_lyrics")) continue;
 
-                    const parsed = await this.withTimeout(
-                        new Promise((resolve) => {
-                            const req = window.indexedDB.open(dbName);
-                            req.onerror = () => resolve(null);
-                            req.onsuccess = () => {
-                                const db = req.result;
-                                const storeNames = Array.from(db.objectStoreNames);
-                                if (storeNames.length === 0) {
-                                    db.close();
-                                    resolve(null);
-                                    return;
-                                }
-                                try {
-                                    const tx = db.transaction(storeNames, "readonly");
-                                    let resolvedWord = null;
-                                    let resolvedLine = null;
-
-                                    storeNames.forEach((sName) => {
-                                        const store = tx.objectStore(sName);
-                                        const keysReq = store.getAllKeys();
-                                        const valsReq = store.getAll();
-
-                                        valsReq.onsuccess = () => {
-                                            const keys = keysReq.result || [];
-                                            const vals = valsReq.result || [];
-                                            for (let idx = 0; idx < vals.length; idx++) {
-                                                const kStr = String(keys[idx] ?? "");
-                                                const entry = vals[idx];
-                                                const vStr =
-                                                    typeof entry === "string"
-                                                        ? entry
-                                                        : JSON.stringify(entry || "");
-
-                                                if (kStr.includes(trackId) || vStr.includes(trackId)) {
-                                                    const p = BratLyricParser.parseAnyPayload(entry, true);
-                                                    if (p?.isWordSynced && !resolvedWord) {
-                                                        resolvedWord = p;
-                                                    } else if (p?.lines?.length > 0 && !resolvedLine) {
-                                                        resolvedLine = p;
-                                                    }
+                    const parsed = await new Promise((resolve) => {
+                        const req = window.indexedDB.open(dbName);
+                        req.onerror = () => resolve(null);
+                        req.onsuccess = () => {
+                            const db = req.result;
+                            const storeNames = Array.from(db.objectStoreNames);
+                            if (storeNames.length === 0) {
+                                db.close();
+                                resolve(null);
+                                return;
+                            }
+                            try {
+                                const tx = db.transaction(storeNames, "readonly");
+                                let resolved = false;
+                                storeNames.forEach((sName) => {
+                                    const store = tx.objectStore(sName);
+                                    const getAllReq = store.getAll();
+                                    getAllReq.onsuccess = () => {
+                                        const items = getAllReq.result || [];
+                                        for (const entry of items) {
+                                            const rawStr = JSON.stringify(entry || "");
+                                            if (rawStr.includes(trackId) || rawStr.includes("Syllable")) {
+                                                const p = BratLyricParser.fromSpicyLyricsJson(
+                                                    entry?.data || entry?.value || entry,
+                                                    false
+                                                );
+                                                if (p?.isWordSynced && !resolved) {
+                                                    resolved = true;
+                                                    resolve(p);
                                                 }
                                             }
-                                        };
-                                    });
-
-                                    tx.oncomplete = () => {
-                                        db.close();
-                                        resolve(resolvedWord || resolvedLine);
+                                        }
                                     };
-                                    tx.onerror = () => {
-                                        db.close();
-                                        resolve(null);
-                                    };
-                                } catch (_) {
+                                });
+                                tx.oncomplete = () => {
+                                    db.close();
+                                    if (!resolved) resolve(null);
+                                };
+                                tx.onerror = () => {
                                     db.close();
                                     resolve(null);
-                                }
-                            };
-                        }),
-                        1800
-                    );
+                                };
+                            } catch (_) {
+                                db.close();
+                                resolve(null);
+                            }
+                        };
+                    });
 
                     if (parsed?.isWordSynced) return parsed;
-                    if (parsed?.lines?.length > 0 && !bestFallback) bestFallback = parsed;
                 }
             } catch (_) {}
-
-            return bestFallback;
+            return null;
         }
 
-        async fetchLyrics() {
+        async fetchLyrics(onBackgroundWordSyncUpgrade) {
             if (this.abortController) this.abortController.abort();
             this.abortController = new AbortController();
             const { signal } = this.abortController;
@@ -1181,89 +1200,30 @@
                 return { status: "no_track", lines: [], isWordSynced: false };
             }
 
-            if (this.cache.has(meta.uri) && this.cache.get(meta.uri).isWordSynced) {
+            if (this.cache.has(meta.uri)) {
                 return this.cache.get(meta.uri);
             }
 
             if (interceptedSpicyCache.has(meta.uri)) {
                 const cached = interceptedSpicyCache.get(meta.uri);
-                if (cached.isWordSynced) {
-                    this.cache.set(meta.uri, cached);
-                    return cached;
-                }
+                this.cache.set(meta.uri, cached);
+                return cached;
             }
 
             let bestLineSyncedBackup = null;
+            let resolveFirstLineBackup = null;
+            const firstLineBackupPromise = new Promise((res) => {
+                resolveFirstLineBackup = res;
+            });
+
             const saveLineBackup = (lines) => {
                 if (!bestLineSyncedBackup && Array.isArray(lines) && lines.length > 0) {
                     bestLineSyncedBackup = { status: "ready", lines, isWordSynced: false };
+                    if (resolveFirstLineBackup) resolveFirstLineBackup(bestLineSyncedBackup);
                 }
             };
 
             const wordSyncTasks = [];
-
-            wordSyncTasks.push(
-                (async () => {
-                    const lrcParams = new URLSearchParams({
-                        artist_name: meta.artist,
-                        track_name: meta.title,
-                        album_name: meta.album || meta.title
-                    });
-                    if (meta.durationSec > 0) lrcParams.set("duration", String(meta.durationSec));
-                    const lrcRes = await this.fetchTimeout(
-                        `https://lrclib.net/api/get?${lrcParams.toString()}`,
-                        { cache: "no-store" },
-                        signal,
-                        5000
-                    );
-                    if (!lrcRes.ok) throw new Error();
-                    const lrcJson = await lrcRes.json();
-
-                    const eLrcParsed =
-                        BratLyricParser.fromLRC(lrcJson?.syncedLyrics, false) ||
-                        BratLyricParser.fromLRC(lrcJson?.plainLyrics, false);
-                    if (eLrcParsed?.isWordSynced) {
-                        return { status: "ready", lines: eLrcParsed.lines, isWordSynced: true };
-                    }
-                    const stdParsed = BratLyricParser.fromLRC(lrcJson?.syncedLyrics, true);
-                    if (stdParsed) saveLineBackup(stdParsed.lines);
-                    throw new Error();
-                })()
-            );
-
-            wordSyncTasks.push(
-                (async () => {
-                    const searchParams = new URLSearchParams({
-                        track_name: meta.title,
-                        artist_name: meta.artist
-                    });
-                    const searchRes = await this.fetchTimeout(
-                        `https://lrclib.net/api/search?${searchParams.toString()}`,
-                        { cache: "no-store" },
-                        signal,
-                        5500
-                    );
-                    if (!searchRes.ok) throw new Error();
-                    const list = await searchRes.json();
-                    if (!Array.isArray(list) || list.length === 0) throw new Error();
-
-                    for (const item of list) {
-                        const eLrc =
-                            BratLyricParser.fromLRC(item?.syncedLyrics, false) ||
-                            BratLyricParser.fromLRC(item?.plainLyrics, false);
-                        if (eLrc?.isWordSynced) {
-                            return { status: "ready", lines: eLrc.lines, isWordSynced: true };
-                        }
-                    }
-
-                    const firstSynced = list.find((item) => item?.syncedLyrics);
-                    if (firstSynced?.syncedLyrics) {
-                        const std = BratLyricParser.fromLRC(firstSynced.syncedLyrics, true);
-                        if (std) saveLineBackup(std.lines);
-                    }
-                    throw new Error();
-                })()
-            );
 
             if (meta.trackId) {
                 wordSyncTasks.push(
@@ -1272,58 +1232,41 @@
                         if (localSpicy?.isWordSynced) {
                             return { status: "ready", lines: localSpicy.lines, isWordSynced: true };
                         }
-                        if (localSpicy?.lines?.length > 0) {
-                            saveLineBackup(localSpicy.lines);
-                        }
                         throw new Error();
                     })()
                 );
 
                 wordSyncTasks.push(
                     (async () => {
-                        const payloads = [
+                        const res = await this.fetchTimeout(
+                            SPICY_API_URL,
                             {
-                                jobs: [
-                                    {
-                                        handler: "lyrics",
-                                        args: { id: meta.trackId, auth: "SpicyLyrics-WebAuth" }
-                                    }
-                                ],
-                                client: { version: detectedSpicyVersion }
-                            },
-                            {
-                                jobs: [{ handler: "lyrics", args: { id: meta.trackId } }],
-                                client: { version: detectedSpicyVersion }
-                            },
-                            {
-                                queries: [{ operation: "lyrics", variables: { id: meta.trackId } }],
-                                client: { version: detectedSpicyVersion }
-                            }
-                        ];
-
-                        for (const bodyObj of payloads) {
-                            const res = await this.fetchTimeout(
-                                SPICY_API_URL,
-                                {
-                                    method: "POST",
-                                    headers: {
-                                        "Content-Type": "application/json",
-                                        "SpicyLyrics-Version": detectedSpicyVersion
-                                    },
-                                    body: JSON.stringify(bodyObj)
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    "SpicyLyrics-Version": detectedSpicyVersion
                                 },
-                                signal,
-                                5000
-                            );
-                            if (!res.ok) continue;
-                            const rawText = await res.text();
-                            const wordParsed = BratLyricParser.parseAnyPayload(rawText, false);
-                            if (wordParsed?.isWordSynced) {
-                                return { status: "ready", lines: wordParsed.lines, isWordSynced: true };
-                            }
-                            const lineParsed = BratLyricParser.parseAnyPayload(rawText, true);
-                            if (lineParsed?.lines?.length > 0) saveLineBackup(lineParsed.lines);
+                                body: JSON.stringify({
+                                    queries: [
+                                        {
+                                            operation: "lyrics",
+                                            variables: { id: meta.trackId }
+                                        }
+                                    ],
+                                    client: { version: detectedSpicyVersion }
+                                })
+                            },
+                            signal,
+                            6500
+                        );
+                        if (!res.ok) throw new Error();
+                        const json = await res.json();
+                        const wordParsed = BratLyricParser.fromSpicyLyricsJson(json, false);
+                        if (wordParsed?.isWordSynced) {
+                            return { status: "ready", lines: wordParsed.lines, isWordSynced: true };
                         }
+                        const lineParsed = BratLyricParser.fromSpicyLyricsJson(json, true);
+                        if (lineParsed) saveLineBackup(lineParsed.lines);
                         throw new Error();
                     })()
                 );
@@ -1336,14 +1279,12 @@
                             `https://lyrics-storage.binimum.org/${meta.isrc}.ttml`,
                             {},
                             signal,
-                            4500
+                            5500
                         );
                         if (!r.ok) throw new Error();
                         const t = await r.text();
                         const p = BratLyricParser.fromTTML(t, false);
-                        if (p?.isWordSynced) {
-                            return { status: "ready", lines: p.lines, isWordSynced: true };
-                        }
+                        if (p?.isWordSynced) return { status: "ready", lines: p.lines, isWordSynced: true };
                         throw new Error();
                     })()
                 );
@@ -1365,16 +1306,16 @@
                             `${host}/v2/lyrics/get?${lpParams.toString()}`,
                             {},
                             signal,
-                            5500
+                            7500
                         );
                         if (!r.ok) throw new Error();
-                        const rawText = await r.text();
-                        const wordParsed = BratLyricParser.parseAnyPayload(rawText, false);
+                        const json = await r.json();
+                        const wordParsed = BratLyricParser.fromLyricsPlusJson(json, false);
                         if (wordParsed?.isWordSynced) {
                             return { status: "ready", lines: wordParsed.lines, isWordSynced: true };
                         }
-                        const lineParsed = BratLyricParser.parseAnyPayload(rawText, true);
-                        if (lineParsed?.lines?.length > 0) saveLineBackup(lineParsed.lines);
+                        const lineParsed = BratLyricParser.fromLyricsPlusJson(json, true);
+                        if (lineParsed) saveLineBackup(lineParsed.lines);
                         throw new Error();
                     })()
                 );
@@ -1385,26 +1326,19 @@
                     (async () => {
                         const term = encodeURIComponent(`${meta.artist} ${meta.title}`);
                         const itunesRes = await this.fetchTimeout(
-                            `https://itunes.apple.com/search?term=${term}&country=${countryCode}&entity=song&limit=10`,
+                            `https://itunes.apple.com/search?term=${term}&country=${countryCode}&entity=song&limit=6`,
                             {},
                             signal,
-                            4500
+                            5000
                         );
                         if (!itunesRes.ok) throw new Error();
                         const itunesJson = await itunesRes.json();
                         const results = itunesJson?.results || [];
                         if (results.length === 0) throw new Error();
 
-                        const targetArtist = meta.artist.toLowerCase();
-                        const artistMatches = results.filter((item) => {
-                            const aName = String(item.artistName || "").toLowerCase();
-                            return aName.includes(targetArtist) || targetArtist.includes(aName);
-                        });
-                        const pool = artistMatches.length > 0 ? artistMatches : results;
-
-                        let matchedSong = pool[0];
+                        let matchedSong = results[0];
                         let bestDelta = Infinity;
-                        for (const item of pool) {
+                        for (const item of results) {
                             const sec = Math.round((item.trackTimeMillis || 0) / 1000);
                             const delta = Math.abs(sec - meta.durationSec);
                             if (delta < bestDelta) {
@@ -1414,23 +1348,20 @@
                         }
 
                         if (!matchedSong?.trackId) throw new Error();
-                        const appleId = matchedSong.trackId;
-                        const paxUrls = [
-                            `https://lyrics.paxsenix.org/apple-music/lyrics?id=${appleId}&ttml=true&v=2`,
-                            `https://lyrics.paxsenix.org/apple-music/lyrics?id=${appleId}`,
-                            `https://api.paxsenix.org/lyrics/applemusic?id=${appleId}`
-                        ];
+                        const paxRes = await this.fetchTimeout(
+                            `https://lyrics.paxsenix.org/apple-music/lyrics?id=${matchedSong.trackId}&ttml=true&v=2`,
+                            {},
+                            signal,
+                            6500
+                        );
+                        if (!paxRes.ok) throw new Error();
+                        const textData = await paxRes.text();
+                        const parsed =
+                            BratLyricParser.fromTTML(textData, false) ||
+                            BratLyricParser.fromPaxsenixJson(textData);
 
-                        for (const pUrl of paxUrls) {
-                            try {
-                                const paxRes = await this.fetchTimeout(pUrl, {}, signal, 4500);
-                                if (!paxRes.ok) continue;
-                                const textData = await paxRes.text();
-                                const parsed = BratLyricParser.parseAnyPayload(textData, false);
-                                if (parsed?.isWordSynced) {
-                                    return { status: "ready", lines: parsed.lines, isWordSynced: true };
-                                }
-                            } catch (_) {}
+                        if (parsed?.isWordSynced) {
+                            return { status: "ready", lines: parsed.lines, isWordSynced: true };
                         }
                         throw new Error();
                     })()
@@ -1441,7 +1372,7 @@
                 wordSyncTasks.push(
                     (async () => {
                         const spUrl = `https://spclient.wg.spotify.com/color-lyrics/v2/track/${meta.trackId}?format=json&vocalRemoval=false&market=from_token`;
-                        const spRes = await this.withTimeout(Spicetify.CosmosAsync.get(spUrl), 3800);
+                        const spRes = await Spicetify.CosmosAsync.get(spUrl);
                         if (!spRes?.lyrics) throw new Error();
                         const spWord = BratLyricParser.fromSpotify(spRes.lyrics, false);
                         if (spWord?.isWordSynced) {
@@ -1456,16 +1387,115 @@
                 );
             }
 
-            try {
-                const fastestWordSync = await this.withTimeout(Promise.any(wordSyncTasks), 6500);
-                if (signal.aborted) return { status: "aborted" };
-                if (fastestWordSync?.status === "ready") {
-                    this.cache.set(meta.uri, fastestWordSync);
-                    return fastestWordSync;
-                }
-            } catch (_) {}
+            wordSyncTasks.push(
+                (async () => {
+                    const lrcParams = new URLSearchParams({
+                        artist_name: meta.artist,
+                        track_name: meta.title
+                    });
+                    if (meta.album) lrcParams.set("album_name", meta.album);
+                    if (meta.durationSec > 0) lrcParams.set("duration", String(meta.durationSec));
+                    const lrcRes = await this.fetchTimeout(
+                        `https://lrclib.net/api/get?${lrcParams.toString()}`,
+                        { cache: "no-store" },
+                        signal,
+                        5500
+                    );
+                    if (!lrcRes.ok) throw new Error();
+                    const lrcJson = await lrcRes.json();
+
+                    const eLrcParsed =
+                        BratLyricParser.fromLRC(lrcJson?.syncedLyrics, false) ||
+                        BratLyricParser.fromLRC(lrcJson?.plainLyrics, false);
+                    if (eLrcParsed?.isWordSynced) {
+                        return { status: "ready", lines: eLrcParsed.lines, isWordSynced: true };
+                    }
+                    const stdParsed = BratLyricParser.fromLRC(lrcJson?.syncedLyrics, true);
+                    if (stdParsed) saveLineBackup(stdParsed.lines);
+                    throw new Error();
+                })()
+            );
+
+            wordSyncTasks.push(
+                (async () => {
+                    const q = encodeURIComponent(`${meta.artist} ${meta.title}`);
+                    const searchRes = await this.fetchTimeout(
+                        `https://lrclib.net/api/search?q=${q}`,
+                        { cache: "no-store" },
+                        signal,
+                        5500
+                    );
+                    if (!searchRes.ok) throw new Error();
+                    const list = await searchRes.json();
+                    if (!Array.isArray(list) || list.length === 0) throw new Error();
+
+                    for (const item of list) {
+                        const eLrc =
+                            BratLyricParser.fromLRC(item?.syncedLyrics, false) ||
+                            BratLyricParser.fromLRC(item?.plainLyrics, false);
+                        if (eLrc?.isWordSynced) {
+                            return { status: "ready", lines: eLrc.lines, isWordSynced: true };
+                        }
+                    }
+
+                    const syncedItem = list.find((item) => item?.syncedLyrics);
+                    if (!syncedItem?.syncedLyrics) throw new Error();
+
+                    const std = BratLyricParser.fromLRC(syncedItem.syncedLyrics, true);
+                    if (std) saveLineBackup(std.lines);
+                    throw new Error();
+                })()
+            );
+
+            const wordSyncPromise = Promise.any(wordSyncTasks);
+
+            const sixSecTimer = new Promise((resolve) =>
+                setTimeout(() => resolve({ status: "timeout_6s" }), WORD_SYNC_INITIAL_WAIT_MS)
+            );
+
+            const initialRace = await Promise.race([
+                wordSyncPromise.catch(() => ({ status: "all_rejected" })),
+                sixSecTimer
+            ]);
 
             if (signal.aborted) return { status: "aborted" };
+
+            if (initialRace?.status === "ready") {
+                this.cache.set(meta.uri, initialRace);
+                return initialRace;
+            }
+
+            if (initialRace?.status === "timeout_6s") {
+                wordSyncPromise
+                    .then((lateWordSync) => {
+                        if (signal.aborted) return;
+                        if (lateWordSync?.status === "ready") {
+                            this.cache.set(meta.uri, lateWordSync);
+                            if (typeof onBackgroundWordSyncUpgrade === "function") {
+                                onBackgroundWordSyncUpgrade(lateWordSync);
+                            }
+                        }
+                    })
+                    .catch(() => {});
+            }
+
+            if (bestLineSyncedBackup) {
+                this.cache.set(meta.uri, bestLineSyncedBackup);
+                return bestLineSyncedBackup;
+            }
+
+            const finalFallback = await Promise.race([
+                firstLineBackupPromise,
+                wordSyncPromise.catch(() => null),
+                new Promise((r) => setTimeout(() => r(null), 2000))
+            ]);
+
+            if (signal.aborted) return { status: "aborted" };
+
+            if (finalFallback?.status === "ready") {
+                this.cache.set(meta.uri, finalFallback);
+                return finalFallback;
+            }
 
             if (bestLineSyncedBackup) {
                 this.cache.set(meta.uri, bestLineSyncedBackup);
@@ -1478,13 +1508,17 @@
 
     class StateStore {
         constructor() {
-            this.storageKey = "brat_lyrics_pure_v12";
+            this.storageKey = "brat_lyrics_pure_v23";
             const saved = this.load();
             const validTransitions = ["rigid", "smooth", "slide"];
             const initialTransition = validTransitions.includes(saved.transitionStyle)
                 ? saved.transitionStyle
                 : "smooth";
-            const prefMode = saved.preferredDisplayMode || saved.displayMode || "word_zoom";
+            const validModes = ["word_zoom", "word_lock", "full_line"];
+            const prefMode = validModes.includes(saved.preferredDisplayMode)
+                ? saved.preferredDisplayMode
+                : "word_zoom";
+            const initialFx = saved.visualFx === "dust" ? "dust" : "off";
 
             this.state = {
                 isOpen: false,
@@ -1494,10 +1528,14 @@
                 isCurrentSongWordSynced: true,
                 colorFlipMode: saved.colorFlipMode || "random_1_3",
                 transitionStyle: initialTransition,
+                visualFx: initialFx,
                 bgColor: saved.bgColor || "#ffffff",
                 textColor: saved.textColor || "#000000",
                 blurAmount: saved.blurAmount ?? 1.15,
                 syncOffsetMs: saved.syncOffsetMs ?? 0,
+                customMediaActive: Boolean(saved.customMediaActive),
+                customMediaType: saved.customMediaType || "",
+                customMediaName: saved.customMediaName || "",
                 status: "idle",
                 lines: []
             };
@@ -1521,10 +1559,14 @@
                         displayMode: this.state.preferredDisplayMode,
                         colorFlipMode: this.state.colorFlipMode,
                         transitionStyle: this.state.transitionStyle,
+                        visualFx: this.state.visualFx,
                         bgColor: this.state.bgColor,
                         textColor: this.state.textColor,
                         blurAmount: this.state.blurAmount,
-                        syncOffsetMs: this.state.syncOffsetMs
+                        syncOffsetMs: this.state.syncOffsetMs,
+                        customMediaActive: this.state.customMediaActive,
+                        customMediaType: this.state.customMediaType,
+                        customMediaName: this.state.customMediaName
                     })
                 );
             } catch (_) {}
@@ -1536,10 +1578,14 @@
                 "preferredDisplayMode" in partial ||
                 "colorFlipMode" in partial ||
                 "transitionStyle" in partial ||
+                "visualFx" in partial ||
                 "bgColor" in partial ||
                 "textColor" in partial ||
                 "blurAmount" in partial ||
-                "syncOffsetMs" in partial
+                "syncOffsetMs" in partial ||
+                "customMediaActive" in partial ||
+                "customMediaType" in partial ||
+                "customMediaName" in partial
             ) {
                 this.save();
             }
@@ -1566,10 +1612,26 @@
             this.lastPerfMs = performance.now();
         }
 
+        safeGetProgress() {
+            try {
+                return Spicetify.Player.getProgress() || 0;
+            } catch (_) {
+                return 0;
+            }
+        }
+
+        safeIsPlaying() {
+            try {
+                return Boolean(Spicetify.Player?.data && Spicetify.Player.isPlaying());
+            } catch (_) {
+                return false;
+            }
+        }
+
         reset() {
             this.activeLineIdx = -1;
             this.activeWordIdx = -1;
-            this.lastRawMs = Spicetify.Player.getProgress() || 0;
+            this.lastRawMs = this.safeGetProgress();
             this.lastPerfMs = performance.now();
         }
 
@@ -1596,13 +1658,13 @@
         }
 
         getPreciseTimeSec(now) {
-            const rawMs = Spicetify.Player.getProgress() || 0;
+            const rawMs = this.safeGetProgress();
             let currentMs = rawMs;
 
             if (rawMs !== this.lastRawMs) {
                 this.lastRawMs = rawMs;
                 this.lastPerfMs = now;
-            } else if (Spicetify.Player.isPlaying()) {
+            } else if (this.safeIsPlaying()) {
                 const elapsed = Math.min(200, Math.max(0, now - this.lastPerfMs));
                 currentMs = this.lastRawMs + elapsed;
             }
@@ -1661,16 +1723,21 @@
     };
 
     class BratStageRenderer {
-        constructor(store) {
+        constructor(store, mediaStorage) {
             this.store = store;
+            this.mediaStorage = mediaStorage;
             this.currentLine = null;
             this.currentWordIdx = -1;
             this.lockedWordSpans = [];
             this.linesUntilFlip = this.getRandomFlipCount();
             this.isModeDropdownOpen = false;
+            this.activeObjectUrl = null;
+            this.dustIntervalId = null;
 
             this.injectStyles();
             this.buildDOM();
+            this.restoreSavedMedia();
+            this.syncVisualFxState();
         }
 
         getRandomFlipCount() {
@@ -1678,8 +1745,8 @@
         }
 
         handleAutoColorFlipOnNewLine() {
-            const { colorFlipMode, bgColor, textColor } = this.store.state;
-            if (colorFlipMode === "off") return;
+            const { colorFlipMode, bgColor, textColor, customMediaActive } = this.store.state;
+            if (colorFlipMode === "off" || customMediaActive) return;
 
             if (colorFlipMode === "every_1") {
                 this.linesUntilFlip = 0;
@@ -1716,13 +1783,59 @@
                     justify-content: center;
                     padding: 40px;
                     transition: background-color 0.08s ease;
+                    background-size: cover !important;
+                    background-position: center center !important;
+                    background-repeat: no-repeat !important;
                     user-select: none;
                     overflow: hidden;
                 }
                 .brat-overlay.is-open {
                     display: flex;
                 }
+                .brat-bg-media-layer {
+                    position: absolute;
+                    inset: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 0;
+                    pointer-events: none;
+                    overflow: hidden;
+                    background-size: cover !important;
+                    background-position: center center !important;
+                    background-repeat: no-repeat !important;
+                    display: none;
+                }
+                .brat-bg-media-layer.is-active {
+                    display: block;
+                }
+                .brat-bg-video {
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                    object-position: center center;
+                    display: none;
+                    pointer-events: none;
+                }
+                .brat-bg-video.is-visible {
+                    display: block;
+                }
+
+                .brat-dust-canvas {
+                    position: absolute;
+                    inset: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 1;
+                    pointer-events: none;
+                    display: none;
+                }
+                .brat-dust-canvas.is-active {
+                    display: block;
+                }
+
                 .brat-squish-wrapper {
+                    position: relative;
+                    z-index: 2;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -1799,7 +1912,7 @@
                     transform: translateX(-50%);
                     display: flex;
                     align-items: center;
-                    gap: 24px;
+                    gap: 18px;
                     padding: 8px 22px;
                     border-radius: 999px;
                     opacity: 0;
@@ -1812,13 +1925,25 @@
                     opacity: 1;
                 }
                 .brat-hud-btn {
-                    font-size: 22px;
-                    font-weight: bold;
+                    font-family: Arial, Helvetica, sans-serif;
+                    font-size: 20px;
+                    font-weight: 800;
                     cursor: pointer;
                     background: none;
                     border: none;
                     padding: 4px 8px;
+                    color: inherit;
                     transition: transform 0.15s ease;
+                    line-height: 1;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .brat-hud-btn svg {
+                    width: 20px;
+                    height: 20px;
+                    display: block;
+                    fill: currentColor;
                 }
                 .brat-hud-btn:hover {
                     transform: scale(1.15);
@@ -1828,13 +1953,13 @@
                     top: 52px;
                     left: 50%;
                     transform: translateX(-50%);
-                    min-width: 345px;
+                    min-width: 360px;
                     border: 2px solid currentColor;
                     border-radius: 10px;
-                    padding: 16px;
+                    padding: 16px 16px 12px 16px;
                     display: none;
                     flex-direction: column;
-                    gap: 12px;
+                    gap: 11px;
                     font-family: Arial, sans-serif;
                     font-size: 12.5px;
                     font-weight: bold;
@@ -2037,13 +2162,69 @@
                     background: transparent;
                     color: inherit;
                     border-radius: 5px;
-                    padding: 2px 7px;
+                    padding: 3px 9px;
                     font-weight: bold;
                     cursor: pointer;
                     font-size: 11.5px;
                 }
                 .brat-mini-btn:hover {
                     opacity: 0.75;
+                }
+                .brat-media-ctrl {
+                    position: relative;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .brat-media-info-badge {
+                    width: 18px;
+                    height: 18px;
+                    min-width: 18px;
+                    border-radius: 50%;
+                    background: #2563eb;
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: 900;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    border: 1.5px solid #ffffff;
+                    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.5);
+                    line-height: 1;
+                }
+                .brat-media-tooltip {
+                    position: absolute;
+                    bottom: calc(100% + 8px);
+                    right: 0;
+                    width: 245px;
+                    background: #111827;
+                    color: #f9fafb;
+                    border: 1.5px solid #3b82f6;
+                    border-radius: 8px;
+                    padding: 8px 10px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    line-height: 1.4;
+                    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.55);
+                    display: none;
+                    z-index: 50;
+                    pointer-events: none;
+                    text-align: left;
+                }
+                .brat-media-tooltip.is-visible {
+                    display: block;
+                }
+                .brat-version-footer {
+                    font-size: 10px;
+                    font-weight: 700;
+                    opacity: 0.38;
+                    text-align: left;
+                    line-height: 1;
+                    margin-top: 2px;
+                    letter-spacing: 0.03em;
+                    pointer-events: none;
+                    user-select: none;
                 }
             `;
         }
@@ -2056,12 +2237,37 @@
                 syncOffsetMs,
                 displayMode,
                 colorFlipMode,
-                transitionStyle
+                transitionStyle,
+                visualFx
             } = this.store.state;
 
             this.overlay = document.createElement("div");
             this.overlay.className = "brat-overlay";
             this.overlay.style.setProperty("--brat-blur", `${blurAmount}px`);
+
+            this.bgMediaLayer = document.createElement("div");
+            this.bgMediaLayer.className = "brat-bg-media-layer";
+
+            this.bgVideo = document.createElement("video");
+            this.bgVideo.className = "brat-bg-video";
+            this.bgVideo.playsInline = true;
+            this.bgVideo.loop = true;
+            this.bgVideo.muted = true;
+            this.bgVideo.defaultMuted = true;
+            this.bgVideo.volume = 0;
+            this.bgVideo.addEventListener("volumechange", () => {
+                if (!this.bgVideo.muted || this.bgVideo.volume !== 0) {
+                    this.bgVideo.muted = true;
+                    this.bgVideo.volume = 0;
+                }
+            });
+
+            this.bgMediaLayer.appendChild(this.bgVideo);
+            this.overlay.appendChild(this.bgMediaLayer);
+
+            this.dustCanvas = document.createElement("canvas");
+            this.dustCanvas.className = "brat-dust-canvas";
+            this.overlay.appendChild(this.dustCanvas);
 
             this.squishWrapper = document.createElement("div");
             this.squishWrapper.className = "brat-squish-wrapper";
@@ -2074,10 +2280,21 @@
             this.hud = document.createElement("div");
             this.hud.className = "brat-hud";
 
+            this.btnPrev = document.createElement("button");
+            this.btnPrev.className = "brat-hud-btn";
+            this.btnPrev.innerHTML = HUD_ICONS.prev;
+            this.btnPrev.title = "Previous Track";
+
             this.btnGear = document.createElement("button");
             this.btnGear.className = "brat-hud-btn";
-            this.btnGear.textContent = "⚙";
+            this.btnGear.innerHTML = HUD_ICONS.gear;
             this.btnGear.title = "Brat Lyrics Settings";
+
+            this.btnPlayPause = document.createElement("button");
+            this.btnPlayPause.className = "brat-hud-btn";
+            this.btnPlayPause.innerHTML = HUD_ICONS.play;
+            this.btnPlayPause.title = "Play / Pause";
+            this.syncPlayPauseIcon();
 
             this.btnFull = document.createElement("button");
             this.btnFull.className = "brat-hud-btn";
@@ -2088,6 +2305,11 @@
             this.btnClose.className = "brat-hud-btn";
             this.btnClose.textContent = "✕";
             this.btnClose.title = "Close (Esc)";
+
+            this.btnNext = document.createElement("button");
+            this.btnNext.className = "brat-hud-btn";
+            this.btnNext.innerHTML = HUD_ICONS.next;
+            this.btnNext.title = "Next Track";
 
             this.panel = document.createElement("div");
             this.panel.className = "brat-panel";
@@ -2173,6 +2395,18 @@
             this.selectTransition.value = transitionStyle;
             rowTrans.appendChild(this.selectTransition);
 
+            const rowVisualFx = document.createElement("div");
+            rowVisualFx.className = "brat-row";
+            rowVisualFx.innerHTML = `<span>Visual Effect</span>`;
+            this.selectVisualFx = document.createElement("select");
+            this.selectVisualFx.className = "brat-select";
+            this.selectVisualFx.innerHTML = `
+                <option value="off">Off (Clean Brat)</option>
+                <option value="dust">Vintage Dust Specks</option>
+            `;
+            this.selectVisualFx.value = visualFx;
+            rowVisualFx.appendChild(this.selectVisualFx);
+
             const rowFlip = document.createElement("div");
             rowFlip.className = "brat-row";
             rowFlip.innerHTML = `<span>Auto Color Flip</span>`;
@@ -2201,6 +2435,7 @@
                 chip.style.backgroundColor = p.bg;
                 chip.title = p.title;
                 chip.onclick = () => {
+                    this.clearCustomBackgroundMedia();
                     this.inputBg.value = p.bg;
                     this.inputFg.value = p.fg;
                     this.store.setState({ bgColor: p.bg, textColor: p.fg });
@@ -2224,6 +2459,45 @@
             this.inputFg.type = "color";
             this.inputFg.value = textColor;
             rowFg.appendChild(this.inputFg);
+
+            const rowMedia = document.createElement("div");
+            rowMedia.className = "brat-row";
+            rowMedia.innerHTML = `<span>Custom Background</span>`;
+
+            const mediaCtrl = document.createElement("div");
+            mediaCtrl.className = "brat-media-ctrl";
+
+            this.fileInputMedia = document.createElement("input");
+            this.fileInputMedia.type = "file";
+            this.fileInputMedia.style.display = "none";
+
+            this.btnUploadMedia = document.createElement("button");
+            this.btnUploadMedia.type = "button";
+            this.btnUploadMedia.className = "brat-mini-btn";
+            this.btnUploadMedia.textContent = "Photo / GIF";
+
+            this.btnClearMedia = document.createElement("button");
+            this.btnClearMedia.type = "button";
+            this.btnClearMedia.className = "brat-mini-btn";
+            this.btnClearMedia.textContent = "Clear";
+
+            this.mediaInfoBadge = document.createElement("span");
+            this.mediaInfoBadge.className = "brat-media-info-badge";
+            this.mediaInfoBadge.textContent = "!";
+
+            this.mediaTooltip = document.createElement("div");
+            this.mediaTooltip.className = "brat-media-tooltip";
+            this.mediaTooltip.textContent =
+                "Supported formats: Photo (JPG, PNG, WebP), Animated GIF (.gif), & WebM. Max size: 30 MB (Auto-zooms to fit screen).";
+
+            mediaCtrl.append(
+                this.fileInputMedia,
+                this.btnUploadMedia,
+                this.btnClearMedia,
+                this.mediaInfoBadge,
+                this.mediaTooltip
+            );
+            rowMedia.appendChild(mediaCtrl);
 
             const rowOffset = document.createElement("div");
             rowOffset.className = "brat-row";
@@ -2258,22 +2532,287 @@
             offsetCtrl.append(btnMinus, this.offsetLabel, btnPlus);
             rowOffset.appendChild(offsetCtrl);
 
+            this.versionFooter = document.createElement("div");
+            this.versionFooter.className = "brat-version-footer";
+            this.versionFooter.textContent = `V${ACTIVE_VERSION}`;
+
             this.panel.append(
                 rowMode,
                 rowTrans,
+                rowVisualFx,
                 rowFlip,
                 rowPreset,
                 rowBg,
                 rowFg,
-                rowOffset
+                rowMedia,
+                rowOffset,
+                this.versionFooter
             );
-            this.hud.append(this.btnGear, this.btnFull, this.btnClose, this.panel);
+
+            this.hud.append(
+                this.btnPrev,
+                this.btnGear,
+                this.btnPlayPause,
+                this.btnFull,
+                this.btnClose,
+                this.btnNext,
+                this.panel
+            );
             this.overlay.appendChild(this.hud);
             document.body.appendChild(this.overlay);
 
             this.bindEvents();
             this.syncColors(bgColor, textColor);
             this.syncModeUI();
+        }
+
+        syncVisualFxState() {
+            const { visualFx, isOpen } = this.store.state;
+            const hasDust = visualFx === "dust";
+
+            this.dustCanvas.classList.toggle("is-active", hasDust);
+
+            if (isOpen && hasDust) {
+                this.startDustLoop();
+            } else {
+                this.stopDustLoop();
+            }
+        }
+
+        startDustLoop() {
+            if (this.dustIntervalId) return;
+            this.drawDustFrame();
+            this.dustIntervalId = setInterval(() => {
+                if (!this.store.state.isOpen || this.store.state.visualFx !== "dust") {
+                    this.stopDustLoop();
+                    return;
+                }
+                this.drawDustFrame();
+            }, 65);
+        }
+
+        stopDustLoop() {
+            if (this.dustIntervalId) {
+                clearInterval(this.dustIntervalId);
+                this.dustIntervalId = null;
+            }
+            if (this.dustCanvas) {
+                const ctx = this.dustCanvas.getContext("2d");
+                if (ctx) ctx.clearRect(0, 0, this.dustCanvas.width, this.dustCanvas.height);
+            }
+        }
+
+        drawDustFrame() {
+            if (!this.dustCanvas) return;
+            const w = window.innerWidth || 1280;
+            const h = window.innerHeight || 720;
+            if (this.dustCanvas.width !== w || this.dustCanvas.height !== h) {
+                this.dustCanvas.width = w;
+                this.dustCanvas.height = h;
+            }
+
+            const ctx = this.dustCanvas.getContext("2d");
+            if (!ctx) return;
+            ctx.clearRect(0, 0, w, h);
+
+            const speckColor = this.store.state.textColor || "#000000";
+            ctx.fillStyle = speckColor;
+            ctx.strokeStyle = speckColor;
+
+            const speckCount = Math.floor(Math.random() * 15) + 9;
+            for (let i = 0; i < speckCount; i++) {
+                const x = Math.random() * w;
+                const y = Math.random() * h;
+                const r = Math.random() < 0.2 ? Math.random() * 3.0 + 1.2 : Math.random() * 1.6 + 0.5;
+                ctx.globalAlpha = Math.random() * 0.38 + 0.08;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            if (Math.random() < 0.5) {
+                const sx = Math.random() * w;
+                const sy = Math.random() * h;
+                const len = Math.random() * 34 + 10;
+                const angle = (Math.random() - 0.5) * 1.1;
+                ctx.globalAlpha = Math.random() * 0.24 + 0.06;
+                ctx.lineWidth = Math.random() * 1.1 + 0.4;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy);
+                ctx.lineTo(sx + Math.cos(angle) * len, sy + Math.sin(angle) * len);
+                ctx.stroke();
+            }
+
+            ctx.globalAlpha = 1;
+        }
+
+        syncPlayPauseIcon() {
+            if (!this.btnPlayPause) return;
+            let isPlaying = false;
+            try {
+                isPlaying = Boolean(
+                    Spicetify.Player &&
+                    Spicetify.Player.data &&
+                    typeof Spicetify.Player.isPlaying === "function" &&
+                    Spicetify.Player.isPlaying()
+                );
+            } catch (_) {
+                isPlaying = false;
+            }
+            this.btnPlayPause.innerHTML = isPlaying ? HUD_ICONS.pause : HUD_ICONS.play;
+        }
+
+        async restoreSavedMedia() {
+            try {
+                const record = await this.mediaStorage.loadMedia();
+                if (record && record.buffer) {
+                    const blob = new Blob([record.buffer], { type: record.mimeType || "image/gif" });
+                    this.applyMediaBlob(blob, record.mimeType, record.fileName, false);
+                } else if (this.store.state.customMediaActive) {
+                    this.store.setState({
+                        customMediaActive: false,
+                        customMediaType: "",
+                        customMediaName: ""
+                    });
+                }
+            } catch (_) {}
+        }
+
+        revokeActiveObjectUrl() {
+            if (this.activeObjectUrl) {
+                try {
+                    URL.revokeObjectURL(this.activeObjectUrl);
+                } catch (_) {}
+                this.activeObjectUrl = null;
+            }
+        }
+
+        resolveMediaInfo(mimeType, fileName) {
+            const type = String(mimeType || "").toLowerCase();
+            const name = String(fileName || "").toLowerCase();
+
+            if (/\.(gif)$/i.test(name) || type === "image/gif") {
+                return { kind: "image", mime: "image/gif" };
+            }
+            if (/\.(webp)$/i.test(name) || type === "image/webp") {
+                return { kind: "image", mime: "image/webp" };
+            }
+            if (/\.(png)$/i.test(name) || type === "image/png") {
+                return { kind: "image", mime: "image/png" };
+            }
+            if (/\.(jpg|jpeg|jfif|pjpeg|pjp)$/i.test(name) || type === "image/jpeg") {
+                return { kind: "image", mime: "image/jpeg" };
+            }
+            if (/\.(webm)$/i.test(name) || type === "video/webm") {
+                return { kind: "video", mime: "video/webm" };
+            }
+            if (/\.(mp4|m4v|mov)$/i.test(name) || type.startsWith("video/")) {
+                return { kind: "video", mime: type || "video/mp4" };
+            }
+            if (type.startsWith("image/")) {
+                return { kind: "image", mime: type };
+            }
+            return null;
+        }
+
+        async applyMediaBlob(rawBlob, mimeType, fileName, persistToDB = true) {
+            const info = this.resolveMediaInfo(mimeType || rawBlob.type, fileName);
+
+            if (!info) {
+                Spicetify.showNotification?.("Unsupported format! Use Photo (JPG, PNG, WebP), GIF, or WebM.", true);
+                return;
+            }
+
+            let arrayBuffer = null;
+            try {
+                arrayBuffer = await rawBlob.arrayBuffer();
+            } catch (_) {}
+
+            const cleanBlob = arrayBuffer
+                ? new Blob([arrayBuffer], { type: info.mime })
+                : rawBlob;
+
+            this.revokeActiveObjectUrl();
+            const objUrl = URL.createObjectURL(cleanBlob);
+            this.activeObjectUrl = objUrl;
+
+            this.bgMediaLayer.classList.add("is-active");
+
+            if (info.kind === "video") {
+                this.bgMediaLayer.style.backgroundImage = "none";
+                this.overlay.style.backgroundImage = "none";
+
+                this.bgVideo.onerror = () => {
+                    this.clearCustomBackgroundMedia();
+                    Spicetify.showNotification?.(
+                        "Spotify Desktop does not support this MP4 video codec. Please use a GIF (.gif) or WebM (.webm) file instead!",
+                        true
+                    );
+                };
+
+                this.bgVideo.src = objUrl;
+                this.bgVideo.muted = true;
+                this.bgVideo.defaultMuted = true;
+                this.bgVideo.volume = 0;
+                this.bgVideo.classList.add("is-visible");
+                if (this.store.state.isOpen) {
+                    this.bgVideo.play().catch(() => {});
+                }
+            } else {
+                this.bgVideo.onerror = null;
+                this.bgVideo.pause();
+                this.bgVideo.classList.remove("is-visible");
+                this.bgVideo.removeAttribute("src");
+
+                this.bgMediaLayer.style.backgroundImage = `url("${objUrl}")`;
+                this.overlay.style.backgroundImage = `url("${objUrl}")`;
+            }
+
+            this.btnUploadMedia.textContent = "Change";
+
+            this.store.setState({
+                customMediaActive: true,
+                customMediaType: info.kind,
+                customMediaName: fileName || "custom"
+            });
+
+            if (persistToDB && arrayBuffer) {
+                this.mediaStorage.saveMedia(arrayBuffer, info.mime, fileName).catch(() => {});
+            }
+        }
+
+        clearCustomBackgroundMedia() {
+            this.bgVideo.onerror = null;
+            this.bgVideo.pause();
+            this.bgVideo.classList.remove("is-visible");
+            this.bgVideo.removeAttribute("src");
+
+            this.bgMediaLayer.style.backgroundImage = "none";
+            this.overlay.style.backgroundImage = "none";
+            this.bgMediaLayer.classList.remove("is-active");
+            this.revokeActiveObjectUrl();
+
+            this.btnUploadMedia.textContent = "Photo / GIF";
+
+            this.store.setState({
+                customMediaActive: false,
+                customMediaType: "",
+                customMediaName: ""
+            });
+            this.mediaStorage.clearMedia();
+        }
+
+        syncMediaPlaybackState(isOpen) {
+            if (!this.store.state.customMediaActive) return;
+            if (this.store.state.customMediaType === "video") {
+                if (isOpen) {
+                    this.bgVideo.muted = true;
+                    this.bgVideo.volume = 0;
+                    this.bgVideo.play().catch(() => {});
+                } else {
+                    this.bgVideo.pause();
+                }
+            }
         }
 
         selectModeOption(chosenMode) {
@@ -2290,29 +2829,104 @@
             this.fallbackTooltip.classList.remove("is-visible");
         }
 
+        closeSettingsPanel() {
+            this.panel.classList.remove("is-open");
+            this.hud.classList.remove("is-pinned");
+            this.closeModeDropdown();
+            if (this.mediaTooltip) this.mediaTooltip.classList.remove("is-visible");
+        }
+
         bindEvents() {
-            this.btnGear.onclick = () => {
+            this.btnPrev.onclick = (e) => {
+                e.stopPropagation();
+                Spicetify.Player.back();
+            };
+
+            this.btnGear.onclick = (e) => {
+                e.stopPropagation();
                 const open = this.panel.classList.toggle("is-open");
                 this.hud.classList.toggle("is-pinned", open);
                 if (!open) {
                     this.closeModeDropdown();
+                    this.mediaTooltip.classList.remove("is-visible");
                 }
             };
-            this.btnFull.onclick = () => {
+
+            this.btnPlayPause.onclick = (e) => {
+                e.stopPropagation();
+                Spicetify.Player.togglePlay();
+                setTimeout(() => this.syncPlayPauseIcon(), 60);
+            };
+
+            this.btnFull.onclick = (e) => {
+                e.stopPropagation();
                 if (!document.fullscreenElement) {
                     this.overlay.requestFullscreen().catch(() => {});
+                } else {
+                    document.exitFullscreen().catch(() => {});
                 }
             };
-            this.btnClose.onclick = () => {
+
+            this.btnClose.onclick = (e) => {
+                e.stopPropagation();
                 if (document.fullscreenElement) {
                     document.exitFullscreen();
                 } else {
-                    this.panel.classList.remove("is-open");
-                    this.hud.classList.remove("is-pinned");
-                    this.closeModeDropdown();
+                    this.closeSettingsPanel();
                     this.store.setState({ isOpen: false });
                 }
             };
+
+            this.btnNext.onclick = (e) => {
+                e.stopPropagation();
+                Spicetify.Player.next();
+            };
+
+            this.btnUploadMedia.onclick = (e) => {
+                e.stopPropagation();
+                this.fileInputMedia.value = "";
+                this.fileInputMedia.click();
+            };
+
+            this.fileInputMedia.onchange = (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                const info = this.resolveMediaInfo(file.type, file.name);
+                if (!info) {
+                    Spicetify.showNotification?.(
+                        "Invalid file format! Allowed: Photo (JPG, PNG, WebP), GIF, or WebM.",
+                        true
+                    );
+                    return;
+                }
+
+                if (file.size > MAX_MEDIA_SIZE_BYTES) {
+                    Spicetify.showNotification?.(
+                        "File is too large! Maximum allowed size is 30 MB.",
+                        true
+                    );
+                    return;
+                }
+
+                this.applyMediaBlob(file, info.mime, file.name, true);
+            };
+
+            this.btnClearMedia.onclick = (e) => {
+                e.stopPropagation();
+                this.clearCustomBackgroundMedia();
+            };
+
+            this.mediaInfoBadge.addEventListener("mouseenter", () => {
+                this.mediaTooltip.classList.add("is-visible");
+            });
+            this.mediaInfoBadge.addEventListener("mouseleave", () => {
+                this.mediaTooltip.classList.remove("is-visible");
+            });
+            this.mediaInfoBadge.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.mediaTooltip.classList.toggle("is-visible");
+            });
 
             this.modeTrigger.onclick = (e) => {
                 e.stopPropagation();
@@ -2355,11 +2969,19 @@
             this.selectTransition.onchange = (e) => {
                 this.store.setState({ transitionStyle: e.target.value });
             };
+            this.selectVisualFx.onchange = (e) => {
+                this.store.setState({ visualFx: e.target.value });
+            };
             this.selectColorFlip.onchange = (e) => {
                 this.linesUntilFlip = this.getRandomFlipCount();
                 this.store.setState({ colorFlipMode: e.target.value });
             };
-            this.inputBg.oninput = (e) => this.store.setState({ bgColor: e.target.value });
+            this.inputBg.oninput = (e) => {
+                if (this.store.state.customMediaActive) {
+                    this.clearCustomBackgroundMedia();
+                }
+                this.store.setState({ bgColor: e.target.value });
+            };
             this.inputFg.oninput = (e) => this.store.setState({ textColor: e.target.value });
         }
 
@@ -2383,9 +3005,12 @@
             this.overlay.style.color = fg;
             this.panel.style.backgroundColor = bg;
             this.panel.style.color = fg;
+            this.btnPrev.style.color = fg;
             this.btnGear.style.color = fg;
+            this.btnPlayPause.style.color = fg;
             this.btnFull.style.color = fg;
             this.btnClose.style.color = fg;
+            this.btnNext.style.color = fg;
         }
 
         renderStatus(msg) {
@@ -2590,17 +3215,26 @@
             <div style="display: flex; align-items: center; gap: 12px; background: #8ace00; color: #000000; padding: 12px 16px; border-radius: 8px; font-weight: 900;">
                 <span style="font-size: 24px; filter: blur(0.6px);">brat</span>
                 <div>
-                    <div style="font-size: 15px;">Auto-Updated to v${latestVersion}</div>
-                    <div style="font-size: 12px; font-weight: bold; opacity: 0.8;">Previous version: v${prevVersion}</div>
+                    <div style="font-size: 15px;">Update Available: v${latestVersion}</div>
+                    <div style="font-size: 12px; font-weight: bold; opacity: 0.8;">Current version: v${prevVersion}</div>
                 </div>
             </div>
             <div style="font-size: 13.5px; line-height: 1.5; opacity: 0.92;">
                 <strong>What's new:</strong><br/>
                 ${releaseNotes}
             </div>
+            <div style="background: rgba(255,255,255,0.07); padding: 10px 14px; border-radius: 6px; font-size: 12.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px;">
+                <div>Copy and paste this command in your Terminal / PowerShell to permanently upgrade:</div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(0,0,0,0.45); padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12);">
+                    <code style="color: #8ace00; font-family: monospace; font-size: 12.5px; font-weight: bold;">spicetify upgrade</code>
+                    <button id="brat-copy-upgrade-btn" style="padding: 4px 12px; border-radius: 6px; border: none; background: #8ace00; color: #000000; font-weight: 900; font-size: 11.5px; cursor: pointer;">
+                        Copy
+                    </button>
+                </div>
+            </div>
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
                 <button id="brat-update-later-btn" style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: inherit; font-weight: bold; cursor: pointer;">
-                    Close
+                    Later
                 </button>
                 <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" style="padding: 8px 18px; border-radius: 999px; background: #8ace00; color: #000000; font-weight: 900; text-decoration: none; display: inline-flex; align-items: center;">
                     Open GitHub
@@ -2613,6 +3247,27 @@
             content: modalContainer,
             isLarge: false
         });
+
+        const copyBtn = modalContainer.querySelector("#brat-copy-upgrade-btn");
+        if (copyBtn) {
+            copyBtn.onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText("spicetify upgrade");
+                    copyBtn.textContent = "Copied!";
+                } catch (_) {
+                    const ta = document.createElement("textarea");
+                    ta.value = "spicetify upgrade";
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    ta.remove();
+                    copyBtn.textContent = "Copied!";
+                }
+                setTimeout(() => {
+                    copyBtn.textContent = "Copy";
+                }, 2000);
+            };
+        }
 
         const closeBtn = modalContainer.querySelector("#brat-update-later-btn");
         if (closeBtn) {
@@ -2681,8 +3336,11 @@
     }
 
     const store = new StateStore();
+    const mediaStorage = new BratMediaStorage();
     const service = new UnifiedLyricsService();
-    const renderer = new BratStageRenderer(store);
+    const renderer = new BratStageRenderer(store, mediaStorage);
+
+    let lastLoadedTrackUri = "";
 
     const syncEngine = new SyncEngine(store, {
         onLineChange: (lineObj, lineIdx, prevLineIdx) => {
@@ -2707,13 +3365,48 @@
         }
     });
 
-    async function loadLyricsForCurrentSong() {
+    async function loadLyricsForCurrentSong(forceReload = false) {
+        const currentUri =
+            Spicetify.Player?.data?.item?.uri || Spicetify.Player?.data?.track?.uri || "";
+
+        if (
+            !forceReload &&
+            currentUri &&
+            currentUri === lastLoadedTrackUri &&
+            store.state.status === "ready" &&
+            store.state.lines.length > 0
+        ) {
+            syncEngine.reset();
+            syncEngine.tick(performance.now());
+            return;
+        }
+
+        lastLoadedTrackUri = currentUri;
         syncEngine.reset();
         renderer.linesUntilFlip = renderer.getRandomFlipCount();
         store.setState({ status: "loading", lines: [] });
         renderer.renderStatus("...");
 
-        const res = await service.fetchLyrics();
+        const res = await service.fetchLyrics((lateWordSync) => {
+            if (!store.state.isOpen) return;
+            const activeUri =
+                Spicetify.Player?.data?.item?.uri || Spicetify.Player?.data?.track?.uri || "";
+            if (activeUri !== currentUri) return;
+
+            const pref = store.state.preferredDisplayMode;
+            syncEngine.activeLineIdx = -1;
+            syncEngine.activeWordIdx = -1;
+            store.setState({
+                status: "ready",
+                lines: lateWordSync.lines,
+                isCurrentSongWordSynced: true,
+                displayMode: pref,
+                hasNoWordSyncWarning: false
+            });
+            renderer.syncModeUI();
+            syncEngine.tick(performance.now());
+        });
+
         if (res.status === "aborted") return;
 
         if (res.status === "ready") {
@@ -2733,6 +3426,7 @@
             renderer.syncModeUI();
             syncEngine.tick(performance.now());
         } else if (res.status === "no_track") {
+            lastLoadedTrackUri = "";
             store.setState({
                 status: "no_track",
                 lines: [],
@@ -2741,6 +3435,7 @@
             renderer.syncModeUI();
             renderer.renderStatus("play a track first");
         } else {
+            lastLoadedTrackUri = "";
             store.setState({
                 status: "empty",
                 lines: [],
@@ -2753,9 +3448,13 @@
 
     function toggleOverlay() {
         const nextOpen = !store.state.isOpen;
+        if (!nextOpen) {
+            renderer.closeSettingsPanel();
+        }
         store.setState({ isOpen: nextOpen });
         if (nextOpen) {
-            loadLyricsForCurrentSong();
+            renderer.syncPlayPauseIcon();
+            loadLyricsForCurrentSong(false);
         }
     }
 
@@ -2855,20 +3554,39 @@
             e.stopPropagation();
             toggleOverlay();
         } else if (e.key === "Escape" && store.state.isOpen && !document.fullscreenElement) {
-            store.setState({ isOpen: false });
+            e.preventDefault();
+            e.stopPropagation();
+            if (renderer.isModeDropdownOpen) {
+                renderer.closeModeDropdown();
+            } else if (renderer.panel.classList.contains("is-open")) {
+                renderer.closeSettingsPanel();
+            } else {
+                store.setState({ isOpen: false });
+            }
         }
     };
     window.addEventListener("keydown", onKeyDown, true);
 
     const onSongChange = () => {
-        if (store.state.isOpen) loadLyricsForCurrentSong();
+        renderer.syncPlayPauseIcon();
+        if (store.state.isOpen) loadLyricsForCurrentSong(true);
     };
-    Spicetify.Player.addEventListener("songchange", onSongChange);
+    const onPlayPause = () => {
+        renderer.syncPlayPauseIcon();
+    };
+
+    try {
+        Spicetify.Player.addEventListener("songchange", onSongChange);
+        Spicetify.Player.addEventListener("onplaypause", onPlayPause);
+    } catch (_) {}
 
     store.subscribe((state, partial) => {
         renderer.overlay.classList.toggle("is-open", state.isOpen);
         renderer.syncColors(state.bgColor, state.textColor);
         renderer.syncModeUI();
+        renderer.syncPlayPauseIcon();
+        renderer.syncMediaPlaybackState(state.isOpen);
+        renderer.syncVisualFxState();
 
         const btn = document.getElementById("brat-playbar-btn");
         if (btn) btn.classList.toggle("is-active", state.isOpen);
@@ -2897,8 +3615,13 @@
     window.__BRAT_LYRICS_CLEANUP__ = () => {
         clearInterval(intervalId);
         syncEngine.stop();
+        renderer.stopDustLoop();
+        renderer.revokeActiveObjectUrl();
         window.removeEventListener("keydown", onKeyDown, true);
-        Spicetify.Player.removeEventListener("songchange", onSongChange);
+        try {
+            Spicetify.Player.removeEventListener("songchange", onSongChange);
+            Spicetify.Player.removeEventListener("onplaypause", onPlayPause);
+        } catch (_) {}
         document.querySelectorAll("#brat-playbar-btn").forEach((b) => b.remove());
         renderer.overlay?.remove();
     };
