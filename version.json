@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
-  "changelog": "v2.1.0 Update: Smart Auto-Fallback to Full Sentence mode with (!) indicator badge when word-sync data is unavailable, improved LRCLIB eLRC word-sync support, and square box layout fixes.",
+  "version": "2.2.0",
+  "changelog": "v2.2.0 Update: Custom Background support (Photo, GIF, WebM), Vintage Dust Specks visual effect, top HUD music playback controls, and Smart Auto-Fallback (!) indicator.",
   "url": "https://github.com/Kiano-Ksl/brat-lyrics-spicetify"
 }
