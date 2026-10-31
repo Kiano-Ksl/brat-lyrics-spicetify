@@ -76,6 +76,6 @@ You can deeply customize how the lyrics behave through the Settings menu. Here's
 - Core lyric synchronization, parsing logic, and architectural inspiration respectfully credit the following developers and projects:
   - **[Spicy Lyrics](https://github.com/spikerko/SpicyLyrics)** by spikerko - Multi-provider fallback and parsing logic (Licensed under [MIT](https://choosealicense.com/licenses/mit/)).
   - **[LyricsPlus / YouLy+](https://github.com/spicetify/spicetify-extensions/tree/master/lyrics-plus)** (prjktla) & **[LRCLIB](https://lrclib.net/)**.
-
+.
 ## 📄 License
 This project is open-source and available under the [MIT License](https://choosealicense.com/licenses/mit/).
